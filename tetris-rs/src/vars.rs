@@ -161,7 +161,8 @@ ram_struct! {
         tmp2: u8 = 0x0001,
         tmp3: u8 = 0x0002,
         tmp_bulk_copy_to_ppu_return_addr: Le16 = 0x0005,
-        patch_to_ppu_addr: u8 = 0x0014,
+        /// The patch list `patchToPpu` plays.
+        patch_to_ppu_addr: Le16 = 0x0014,
         rng_seed: Be16 = 0x0017,
         spawn_id: u8 = 0x0019,
         spawn_count: u8 = 0x001A,
