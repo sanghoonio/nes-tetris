@@ -149,19 +149,17 @@ pub fn random_play(seed: u64) -> Script {
     })
 }
 
-/// Random play with the level jumped to 29 as soon as each game starts.
+/// Random play with the level held at 29 once each game is under way.
 pub fn level_29(seed: u64) -> Script {
     let mut play = random_play(seed);
-    let mut poked = false;
     Box::new(move |f, ram| {
         let (b, mut pokes) = play(f, ram);
-        if ram[ram::GAME_MODE] == MODE_PLAY && ram[ram::PLAYER1_PLAY_STATE] == 1 && !poked {
+        if ram[ram::GAME_MODE] == MODE_PLAY
+            && ram[ram::PLAYER1_PLAY_STATE] == 1
+            && ram[ram::PLAYER1_LEVEL_NUMBER] != 29
+        {
             pokes.push((ram::LEVEL_NUMBER as u16, 29));
             pokes.push((ram::PLAYER1_LEVEL_NUMBER as u16, 29));
-            poked = true;
-        }
-        if ram[ram::GAME_MODE] != MODE_PLAY {
-            poked = false;
         }
         (b, pokes)
     })
