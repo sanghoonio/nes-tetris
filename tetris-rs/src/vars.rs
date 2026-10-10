@@ -208,9 +208,12 @@ ram_struct! {
         ending_type_b_cathedral_frame_delay_counter: u8 = 0x00CD,
         demo_held_buttons: u8 = 0x00CE,
         demo_repeats: u8 = 0x00CF,
-        /// High byte of the demo input pointer (the low byte is `demo_index`).
-        demo_buttons_addr: u8 = 0x00D1,
-        demo_buttons_table_index_overflowed: u8 = 0x00D2,
+        /// 0xFF while recording a demo (a development leftover: recorded input is written to
+        /// the demo table's address, which is ROM).
+        demo_recording: u8 = 0x00D0,
+        /// Where the demo's next recorded input comes from (into `demoButtonsTable`).
+        demo_buttons_addr: Le16 = 0x00D1,
+        /// Index of the demo's next piece in `demoTetriminoTypeTable`.
         demo_index: u8 = 0x00D3,
         high_score_entry_name_offset_for_letter: u8 = 0x00D4,
         high_score_entry_raw_pos: u8 = 0x00D5,
