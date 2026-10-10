@@ -224,38 +224,41 @@ pub fn line_clears(seed: u64) -> Script {
 
 /// Games played to their endings, cycling through every kind: A-type games scored past each
 /// rocket threshold (30k, 50k, 70k, 100k, 120k) and then topped out on purpose, and B-type games
-/// at heights 0..=5 cleared down to 0 lines. Pieces become vertical I pieces over a cleared
+/// cleared down to 0 lines: at level 9 (the concert) for heights 0..=5, and at levels 3 and 7
+/// (the cathedral). Pieces become vertical I pieces over a cleared
 /// playfield with a one-column well, so each drop is a Tetris; Start is pressed sparingly during
 /// endings so the animations play out.
 pub fn endings(seed: u64) -> Script {
     const WELL_COLUMN: usize = 5;
-    /// (B-type?, A-type target for `score[2]`, B-type height)
-    const GAMES: [(bool, u8, u8); 11] = [
-        (false, 0x03, 0),
-        (true, 0, 0),
-        (false, 0x05, 0),
-        (true, 0, 1),
-        (false, 0x07, 0),
-        (true, 0, 2),
-        (false, 0x10, 0),
-        (true, 0, 3),
-        (false, 0x12, 0),
-        (true, 0, 4),
-        (true, 0, 5),
+    /// (B-type?, A-type target for `score[2]`, B-type height, start level)
+    const GAMES: [(bool, u8, u8, u8); 13] = [
+        (false, 0x03, 0, 9),
+        (true, 0, 0, 9),
+        (false, 0x05, 0, 9),
+        (true, 0, 1, 9),
+        (false, 0x07, 0, 9),
+        (true, 0, 2, 3),
+        (false, 0x10, 0, 9),
+        (true, 0, 3, 9),
+        (false, 0x12, 0, 9),
+        (true, 0, 4, 9),
+        (true, 0, 5, 9),
+        (true, 0, 2, 9),
+        (true, 0, 1, 7),
     ];
     let mut rng = Rng(seed);
     let mut game = 0usize;
     let mut last_y = 0xFF;
     let mut since_ending = 0usize;
     Box::new(move |f, ram| {
-        let (b_type, target, height) = GAMES[game % GAMES.len()];
+        let (b_type, target, height, level) = GAMES[game % GAMES.len()];
         let mode = ram[ram::GAME_MODE];
         if mode == 2 || mode == 3 {
             last_y = 0xFF;
             let pokes = vec![
                 (ram::GAME_TYPE as u16, b_type as u8),
-                (ram::START_LEVEL as u16, 9),
-                (ram::PLAYER1_START_LEVEL as u16, 9),
+                (ram::START_LEVEL as u16, level),
+                (ram::PLAYER1_START_LEVEL as u16, level),
                 (ram::START_HEIGHT as u16, height),
                 (ram::PLAYER1_START_HEIGHT as u16, height),
             ];

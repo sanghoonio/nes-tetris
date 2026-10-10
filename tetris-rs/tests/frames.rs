@@ -1,8 +1,16 @@
 //! Whole-game oracle: the readable game against the recompile, frame by frame.
 //!
 //! Both run the same scripted input. At every frame boundary (the original's NMI) every named
-//! variable must match, and the visible picture (rows 8..232; see recomp's oracle for why the
+//! variable must match, and video memory (nametables, palette, sprites), and the visible picture (rows 8..232; see recomp's oracle for why the
 //! overscan rows are left out).
+//!
+//! Pictures aren't compared on frames the original changed while drawing them: a PPU write or a
+//! CHR/mirroring switch during the visible lines (screen transitions; the NMI's work overrunning
+//! vblank when every panel is redrawn; palette uploads with rendering off, when the backdrop is
+//! whichever entry the PPU address points at). The recompile draws line by line and shows part
+//! old, part new; this game draws each frame from its end state. The recompile flags these
+//! frames itself (`Snapshot::drawn_over`). Such frames that differ are counted and reported;
+//! their variables are still compared.
 //!
 //!     cargo test -p tetris-rs --test frames -- --nocapture
 
@@ -20,9 +28,10 @@ fn rom_bytes() -> Vec<u8> {
 }
 
 /// Working variables the original reuses as scratch in many routines. The shadow oracle already
-/// lists them as scratch per routine, and the rewrites don't reproduce leftover values in them.
-/// They aren't compared here either: if a leftover value ever matters, it shows up as a
-/// difference in some other variable (as the demo's zero-page input did).
+/// lists them as scratch per routine, and the rewrites don't reproduce every leftover value in
+/// them. They aren't compared here either: a leftover that matters shows up elsewhere, in another
+/// variable (the demo's zero-page input) or in video memory (the B-type ending draws
+/// generalCounter4/5, which is why the falling-piece sprite stager now keeps them exactly).
 const FRAME_SCRATCH: &[&str] = &[
     "general_counter",
     "general_counter2",
@@ -69,6 +78,7 @@ fn compare(name: &str, frames: usize, mut script: Script) -> Coverage {
     let mut original = Stepper::new(&rom);
     let mut cov = Coverage::default();
     let mut ram = [0u8; 0x800];
+    let mut blank_frame_diffs = 0;
     for f in 0..frames {
         let (buttons, pokes) = script(f, &ram);
         let theirs = original.next_frame_with(buttons, true, pokes.clone());
@@ -76,17 +86,34 @@ fn compare(name: &str, frames: usize, mut script: Script) -> Coverage {
         let diffs = var_diffs(&mine.ram, &theirs.ram);
         assert!(diffs.is_empty(), "{name}: frame {f} (game mode {}, state {}):\n  {}",
             theirs.ram[0xC0], theirs.ram[0xA7], diffs.join("\n  "));
+        if let Some(i) = (0..0x800).find(|&i| mine.vram[i] != theirs.vram[i]) {
+            panic!("{name}: frame {f} nametable byte ${:04X} (of the 2 KB): ours {:02X} original {:02X}",
+                i, mine.vram[i], theirs.vram[i]);
+        }
+        assert_eq!(mine.palette, theirs.palette, "{name}: frame {f} palette");
+        assert_eq!(mine.oam, theirs.oam, "{name}: frame {f} OAM");
         let px = theirs.pixels.as_ref().unwrap();
         let bad: Vec<usize> = (8 * 256..232 * 256).filter(|&i| px[i] != mine.pixels[i]).collect();
+        if theirs.drawn_over {
+            if !bad.is_empty() {
+                blank_frame_diffs += 1;
+            }
+            continue_after_picture(&mut cov, &mut ram, &theirs.ram);
+            continue;
+        }
         if let Some(&first) = bad.first() {
             panic!("{name}: frame {f} picture differs in {} pixels, first at ({}, {}): ours {:02X} original {:02X}",
                 bad.len(), first % 256, first / 256, mine.pixels[first], px[first]);
         }
-        cov.observe(&ram, &theirs.ram);
-        ram = theirs.ram;
+        continue_after_picture(&mut cov, &mut ram, &theirs.ram);
     }
-    println!("{name}: {cov:?}");
+    println!("{name}: {cov:?}; {blank_frame_diffs} transition frames differ in their picture");
     cov
+}
+
+fn continue_after_picture(cov: &mut Coverage, ram: &mut [u8; 0x800], now: &[u8; 0x800]) {
+    cov.observe(ram, now);
+    *ram = *now;
 }
 
 #[test]
@@ -112,5 +139,5 @@ fn line_clears() {
 
 #[test]
 fn endings() {
-    compare("endings", 40000, scripts::endings(11));
+    compare("endings", 48000, scripts::endings(11));
 }

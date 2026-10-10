@@ -45,6 +45,10 @@ pub struct Ppu {
     pub chr_banks: [usize; 2],
     /// The frame being drawn, as NES palette indices; complete once vblank starts.
     pub frame_buf: Box<[u8; WIDTH * HEIGHT]>,
+    /// Set when the CPU changes the picture while visible lines are being drawn (a register
+    /// write, or the mapper switching CHR banks or mirroring), so the frame shows part old and
+    /// part new state. Cleared by whoever reads it.
+    pub drawn_over: bool,
 }
 
 impl Ppu {
@@ -70,6 +74,7 @@ impl Ppu {
             mirroring: 0,
             chr_banks: [0, 1],
             frame_buf: Box::new([0; WIDTH * HEIGHT]),
+            drawn_over: false,
         }
     }
 
@@ -151,9 +156,17 @@ impl Ppu {
         }
     }
 
+    /// Whether visible lines are being drawn.
+    pub fn in_visible_lines(&self) -> bool {
+        self.dot < HEIGHT as u32 * DOTS_PER_LINE
+    }
+
     /// Returns true if this write raises NMI (enabling it during vblank).
     pub fn write_reg(&mut self, reg: u16, v: u8) -> bool {
         self.open_bus = v;
+        if matches!(reg, 0 | 1 | 5 | 6 | 7) && self.in_visible_lines() {
+            self.drawn_over = true;
+        }
         match reg {
             0 => {
                 let was_enabled = self.ctrl & 0x80 != 0;

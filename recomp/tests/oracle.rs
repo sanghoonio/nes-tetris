@@ -115,6 +115,6 @@ fn line_clears_video() {
 
 #[test]
 fn endings() {
-    let cov = compare("endings", 40000, false, scripts::endings(11));
+    let cov = compare("endings", 48000, false, scripts::endings(11));
     assert!(cov.ending_frames > 1000 && cov.congratulations_frames > 0, "{cov:?}");
 }

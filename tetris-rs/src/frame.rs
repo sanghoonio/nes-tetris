@@ -26,6 +26,10 @@ pub struct FrameOut {
     pub samples: Vec<f32>,
     /// All variables, laid out as NES RAM (for the oracle).
     pub ram: [u8; 0x800],
+    /// Video memory at the end of the frame: nametables, palette, sprites (for the oracle).
+    pub vram: Box<[u8; 0x800]>,
+    pub palette: [u8; 32],
+    pub oam: [u8; 256],
 }
 
 struct FrameIn {
@@ -95,7 +99,14 @@ impl Game {
             self.ppu.render_frame();
             let mut ram = [0; 0x800];
             self.vars.to_ram(&mut ram);
-            let out = FrameOut { pixels: self.ppu.frame_buf.clone(), samples: self.apu.end_frame(), ram };
+            let out = FrameOut {
+                pixels: self.ppu.frame_buf.clone(),
+                samples: self.apu.end_frame(),
+                ram,
+                vram: Box::new(self.ppu.vram),
+                palette: self.ppu.palette,
+                oam: self.ppu.oam,
+            };
             if io.out.send(out).is_err() {
                 std::panic::resume_unwind(Box::new(Stop));
             }

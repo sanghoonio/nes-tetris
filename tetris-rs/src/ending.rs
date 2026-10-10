@@ -138,11 +138,15 @@ impl Game {
         }
     }
 
-    /// `render_ending`: draw one frame of the ending. Only the concert (type B, level 9) is
-    /// rewritten so far; ending A and the type-B cathedral are not dispatched here yet.
+    /// `render_ending`: stage one frame of the ending: the rocket for type A, the concert for
+    /// type B at level 9, the cathedral for the other type-B levels.
     pub fn render_ending(&mut self) {
-        if self.vars.game_type != 0 && self.vars.active.level_number == CONCERT_LEVEL {
+        if self.vars.game_type == 0 {
+            self.ending_type_a();
+        } else if self.vars.active.level_number == CONCERT_LEVEL {
             self.ending_type_bconcert();
+        } else {
+            self.ending_type_b_cathedral();
         }
     }
 
@@ -352,7 +356,15 @@ pub const SHADOW: &[Routine] = &[
         },
         scratch: &[],
     },
-    // render_ending is registered once ending_typeA and ending_typeBCathedral are rewritten.
+    Routine {
+        name: "render_ending",
+        addr: layout::RENDER_ENDING,
+        run: |g, _| {
+            g.render_ending();
+            Ret::Unit
+        },
+        scratch: LOAD_SPRITE_SCRATCH,
+    },
     Routine {
         name: "ending_typeBConcert",
         addr: layout::ENDING_TYPE_BCONCERT,

@@ -22,6 +22,12 @@ pub struct Snapshot {
     pub fallback_log: Vec<u16>,
     /// Audio generated since the previous snapshot (mono, [-1, 1]), if audio is enabled.
     pub samples: Vec<f32>,
+    /// The CPU changed the picture while this frame was being drawn (see `ppu::Ppu::drawn_over`).
+    pub drawn_over: bool,
+    /// Video memory at the snapshot: nametables, palette, sprites.
+    pub vram: Box<[u8; 0x800]>,
+    pub palette: [u8; 32],
+    pub oam: [u8; 256],
 }
 
 struct Request {
@@ -78,6 +84,10 @@ impl Stepper {
                         apu_regs: m.apu_regs,
                         fallback_log: m.fallback_log.clone(),
                         samples: m.apu.as_mut().map(|a| a.take_samples()).unwrap_or_default(),
+                        drawn_over: std::mem::take(&mut m.ppu.drawn_over),
+                        vram: Box::new(m.ppu.vram),
+                        palette: m.ppu.palette,
+                        oam: m.ppu.oam,
                     };
                     if snap_tx.send(snap).is_err() {
                         std::panic::resume_unwind(Box::new(Stop));

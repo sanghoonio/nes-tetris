@@ -69,11 +69,21 @@ impl Game {
         let (p3, d3) = rol(p2, d2);
         let mut table_index = adc(p3, p2, d3).0;
 
+        // The original works in generalCounter..5 and originalY, and what it leaves there is
+        // visible: the B-type ending draws generalCounter4/5 as its bonus digits, and on its last
+        // frame they hold this routine's leftovers. So they're kept as the original keeps them.
+        self.vars.general_counter3 = centre_x;
+        self.vars.general_counter4 = centre_y;
+        self.vars.general_counter5 = piece;
+        self.vars.general_counter = p2;
+        self.vars.general_counter2 = 0;
+
         let mut oam = self.vars.oam_staging_length;
         for _ in 0..4 {
             let mino_y = self.rom.table(layout::ORIENTATION_TABLE, table_index as usize).wrapping_shl(3).wrapping_add(centre_y);
             let tile = self.rom.table(layout::ORIENTATION_TABLE, table_index.wrapping_add(1) as usize);
             let mino_x_offset = self.rom.table(layout::ORIENTATION_TABLE, table_index.wrapping_add(2) as usize);
+            self.vars.original_y = mino_y;
             let staged = &mut self.vars.oam_staging;
             staged[oam as usize] = mino_y;
             staged[oam.wrapping_add(1) as usize] = tile;
@@ -137,16 +147,6 @@ impl Game {
     }
 }
 
-/// The counters and `originalY` hold the centre and mino positions while the routine builds them;
-/// the routine works in locals and never reads them afterwards.
-const CURRENT_PIECE_SCRATCH: &[&str] = &[
-    "general_counter",
-    "general_counter2",
-    "general_counter3",
-    "general_counter4",
-    "general_counter5",
-    "original_y",
-];
 /// Pointer and loop counters for the sprite's entries; the routine never reads them afterwards.
 const LOAD_SPRITE_SCRATCH: &[&str] = &["general_counter", "general_counter2"];
 
@@ -158,7 +158,7 @@ pub const SHADOW: &[Routine] = &[
             g.stage_sprite_for_current_piece();
             Ret::Unit
         },
-        scratch: CURRENT_PIECE_SCRATCH,
+        scratch: &[],
     },
     Routine {
         name: "stageSpriteForNextPiece",

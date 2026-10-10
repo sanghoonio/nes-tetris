@@ -286,8 +286,12 @@ impl Machine {
     }
 
     fn sync_ppu_mapping(&mut self) {
-        self.ppu.mirroring = self.mmc1_control & 3;
-        self.ppu.chr_banks = self.chr_banks();
+        let (mirroring, banks) = (self.mmc1_control & 3, self.chr_banks());
+        if (mirroring, banks) != (self.ppu.mirroring, self.ppu.chr_banks) && self.ppu.in_visible_lines() {
+            self.ppu.drawn_over = true;
+        }
+        self.ppu.mirroring = mirroring;
+        self.ppu.chr_banks = banks;
     }
 
     /// The two 4 KB CHR banks currently mapped at PPU $0000 and $1000.
