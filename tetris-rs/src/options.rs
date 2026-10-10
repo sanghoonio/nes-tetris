@@ -3,10 +3,16 @@
 //! `Options::original()` is the game as it was: no title menu, the attract demo, original
 //! rules. The tests run that. The app turns the menus on and passes its saved `Config`.
 
-/// The actions a key can be bound to: the eight NES buttons, then Back (leaves the settings
-/// screen).
-pub const ACTIONS: [&str; 9] = ["UP", "DOWN", "LEFT", "RIGHT", "ROTATE RIGHT", "ROTATE LEFT", "START", "SELECT", "BACK"];
-pub const BACK: usize = 8;
+/// The game keys, one job each, remappable. Menus use fixed keys instead (arrows, Enter,
+/// Escape; see `pc_input`).
+pub const ACTIONS: [&str; 7] = ["MOVE LEFT", "MOVE RIGHT", "SOFT DROP", "HARD DROP", "ROTATE RIGHT", "ROTATE LEFT", "PAUSE"];
+pub const MOVE_LEFT: usize = 0;
+pub const MOVE_RIGHT: usize = 1;
+pub const SOFT_DROP: usize = 2;
+pub const HARD_DROP: usize = 3;
+pub const ROTATE_RIGHT: usize = 4;
+pub const ROTATE_LEFT: usize = 5;
+pub const PAUSE: usize = 6;
 
 /// What happens when Left and Right are held together.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,26 +64,29 @@ impl Default for Rules {
 /// Everything the settings screen edits.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Config {
-    /// The key bound to each of `ACTIONS`, by name (`KeyX`, `ArrowUp`, `Enter`...).
-    pub keys: [String; 9],
+    /// The key bound to each of `ACTIONS`, by name (`KeyX`, `ArrowLeft`, `Space`...).
+    pub keys: [String; 7],
     /// 0..=10.
     pub volume: u8,
     pub save_high_scores: bool,
     pub fullscreen: bool,
     /// Scale the picture by whole numbers only.
     pub integer_scale: bool,
+    /// Show the next piece (the original toggles it with Select mid-game).
+    pub next_piece: bool,
     pub rules: Rules,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        let keys = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "KeyX", "KeyZ", "Enter", "ShiftRight", "Escape"];
+        let keys = ["ArrowLeft", "ArrowRight", "ArrowDown", "Space", "KeyX", "KeyZ", "Escape"];
         Config {
             keys: keys.map(String::from),
             volume: 10,
             save_high_scores: true,
             fullscreen: false,
             integer_scale: false,
+            next_piece: true,
             rules: Rules::ORIGINAL,
         }
     }
@@ -128,6 +137,12 @@ pub fn key_label(name: &str) -> String {
         ("Quote", "\""),
         ("BracketLeft", "("),
         ("BracketRight", ")"),
+        ("PadSouth", "PAD S"),
+        ("PadEast", "PAD E"),
+        ("PadWest", "PAD W"),
+        ("PadNorth", "PAD N"),
+        ("PadStart", "PAD START"),
+        ("PadSelect", "PAD SEL"),
     ];
     if let Some((_, label)) = named.iter().find(|(n, _)| *n == name) {
         return label.to_string();

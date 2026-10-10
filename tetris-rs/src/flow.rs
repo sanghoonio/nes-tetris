@@ -362,7 +362,13 @@ impl Game {
 
             let pressed = self.vars.newly_pressed_buttons_player1;
             if pressed == buttons::START {
-                if self.vars.held_buttons_player1 == buttons::A | buttons::START {
+                // A+Start starts 10 levels up; in the app, Shift+Enter.
+                let plus_ten = if self.options.menus {
+                    self.shift_held()
+                } else {
+                    self.vars.held_buttons_player1 == buttons::A | buttons::START
+                };
+                if plus_ten {
                     self.vars.player1.start_level = self.vars.player1.start_level.wrapping_add(10);
                 }
                 self.vars.game_mode_state = 0;
@@ -702,7 +708,7 @@ impl Game {
     }
 
     /// The pause screen: playfield hidden, "PAUSE" shown, the pause jingle, until Start. With
-    /// the app's menus, Back quits the game instead (returns true), and a hint says so.
+    /// the app's menus it's a RESUME / QUIT menu instead (returns true to quit).
     async fn pause(&mut self) -> bool {
         self.vars.music_staging_noise_hi = PAUSED;
         self.vars.render_mode = RENDER_LEGAL_AND_TITLE;
@@ -710,20 +716,20 @@ impl Game {
         // Background off, sprites on (not recorded in currentPpuMask).
         self.ppu_mask(0x16);
         self.memset_page(0xFF, 0x02, 0x02);
-        let mut quit = false;
+        if self.options.menus {
+            let quit = self.pause_menu().await;
+            self.ppu_mask(0x1E);
+            self.vars.music_staging_noise_hi = 0;
+            self.vars.player1.vram_row = 0;
+            self.vars.render_mode = RENDER_PLAY;
+            return quit;
+        }
         loop {
             self.vars.sprite_x_offset = 0x70;
             self.vars.sprite_y_offset = 0x77;
             self.vars.sprite_index_in_oam_content_lookup = 0x05;
             self.load_sprite_into_oam_staging();
-            if self.options.menus {
-                self.stage_pause_hint();
-            }
             if self.vars.newly_pressed_buttons_player1 == buttons::START {
-                break;
-            }
-            if self.options.menus && self.back_pressed() {
-                quit = true;
                 break;
             }
             self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
@@ -732,7 +738,7 @@ impl Game {
         self.vars.music_staging_noise_hi = 0;
         self.vars.player1.vram_row = 0;
         self.vars.render_mode = RENDER_PLAY;
-        quit
+        false
     }
 
     /// `playState_updateGameOverCurtain`: lower the curtain a row every 4 frames; then show the

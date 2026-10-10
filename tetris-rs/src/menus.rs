@@ -48,7 +48,17 @@ impl Game {
     /// three. Every step plays the menu sound. Each check below is separate, as in the original,
     /// but only one button counts as newly pressed at a time, so they never interact.
     pub fn game_mode_level_menu_handle_level_height_navigation(&mut self) {
-        let pressed = self.vars.newly_pressed_buttons;
+        let mut pressed = self.vars.newly_pressed_buttons;
+        // In the app (no A in menus), stepping off the level grid's right edge or the height
+        // grid's left edge switches between them, as A does.
+        if self.options.menus && self.vars.game_type != 0 {
+            let on_height = self.vars.selecting_level_or_height != 0;
+            let crossing = (pressed == buttons::RIGHT && !on_height && self.vars.active.start_level % LEVEL_ROW == LEVEL_ROW - 1)
+                || (pressed == buttons::LEFT && on_height && self.vars.active.start_height % HEIGHT_ROW == 0);
+            if crossing {
+                pressed = buttons::A;
+            }
+        }
         if pressed == buttons::RIGHT {
             self.vars.sfx_init[1] = SFX_MENU_OPTION_SELECT;
             if self.vars.selecting_level_or_height != 0 {

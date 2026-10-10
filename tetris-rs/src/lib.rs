@@ -27,6 +27,7 @@ mod player;
 mod render;
 mod rng;
 pub mod options;
+pub mod pc_input;
 mod pc_menus;
 pub mod saved;
 mod sound;
@@ -42,6 +43,7 @@ pub use hw::{ApuSink, Joypads, Mmc1};
 pub use rom::Rom;
 pub use saved::Saved;
 pub use options::{Config, Options};
+pub use pc_input::Keys;
 pub use vars::Vars;
 
 /// Joypad bits as the game sees them (first shifted out = A).

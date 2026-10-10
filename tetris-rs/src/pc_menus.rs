@@ -1,12 +1,14 @@
-//! The app's menus: START / SETTINGS / EXIT on the title screen, and the settings screen.
+//! The app's menus: START / SETTINGS / EXIT on the title screen, the settings screen, the
+//! pause menu (RESUME / QUIT) and typing names on the high score screen.
 //!
 //! Both are drawn the way the game draws its own menus: text in the menu font, the flickering
 //! arrow sprites around the chosen item (hidden one frame in four), and the music box's frame
 //! for the settings panel. Only used when `Options::menus` is on, so the original game, which
-//! the oracles check, never runs this code.
+//! the oracles check, never runs this code. They read the menu keys directly (`pc_input`).
 
 use crate::flow::{CHR_TITLE_MENU, MENU_CURSOR_MASK, RENDER_LEGAL_AND_TITLE, SFX_MENU_OPTION, SFX_MENU_SCREEN};
-use crate::options::{key_label, Config, LeftRight, ACTIONS, BACK};
+use crate::options::{key_label, Config, LeftRight, ACTIONS};
+use crate::pc_input::{Keys, MenuKey, Screen};
 use crate::saved::NAME_CHARS;
 use crate::{buttons, layout, Game};
 
@@ -19,13 +21,31 @@ const ARROW_TILE: u8 = 0x27;
 const FLIP_H: u8 = 0x40;
 const BLANK_TILE: u8 = 0xFF;
 
-/// "PAUSE" is five sprites at x 112..152, y 119; the hint goes two rows under it.
-const PAUSE_CENTRE_X: u8 = 132;
-const PAUSE_HINT_Y: u8 = 135;
+/// "PAUSE" is five sprites at x 112..152, y 119; the menu goes under it, left-aligned with it.
+const PAUSE_ITEMS: [(&str, u8); 2] = [("RESUME", 135), ("QUIT", 147)];
+const PAUSE_X: u8 = 112;
 
 /// The title menu, left-aligned under the logo where `PUSH START` was (row 20, columns 7..16).
-const TITLE_ITEMS: [(&str, u8, u8); 3] = [("START", 18, 8), ("SETTINGS", 20, 8), ("EXIT", 22, 8)];
+const TITLE_ITEMS: [(&str, u8, u8); 3] = [("START", 18, 7), ("SETTINGS", 20, 7), ("EXIT", 22, 7)];
 const PUSH_START: (u8, u8, usize) = (20, 7, 10);
+
+/// The level grid's first digit cell (row, column); cells are every other column and row.
+const LEVEL_GRID: (usize, usize) = (11, 7);
+
+/// Digits 3 pixels wide and 7 high (the menu font's digits are 7 high), one row per byte,
+/// left pixel in bit 2.
+const NARROW_DIGITS: [[u8; 7]; 10] = [
+    [0b111, 0b101, 0b101, 0b101, 0b101, 0b101, 0b111],
+    [0b010, 0b110, 0b010, 0b010, 0b010, 0b010, 0b111],
+    [0b111, 0b001, 0b001, 0b111, 0b100, 0b100, 0b111],
+    [0b111, 0b001, 0b001, 0b111, 0b001, 0b001, 0b111],
+    [0b101, 0b101, 0b101, 0b111, 0b001, 0b001, 0b001],
+    [0b111, 0b100, 0b100, 0b111, 0b001, 0b001, 0b111],
+    [0b111, 0b100, 0b100, 0b111, 0b101, 0b101, 0b111],
+    [0b111, 0b001, 0b001, 0b001, 0b001, 0b001, 0b001],
+    [0b111, 0b101, 0b101, 0b111, 0b101, 0b101, 0b111],
+    [0b111, 0b101, 0b101, 0b111, 0b001, 0b001, 0b111],
+];
 
 /// The settings panel: the music box's frame around rows 2..=27, columns 2..=29.
 const PANEL: (u8, u8, u8, u8) = (2, 2, 27, 29);
@@ -50,6 +70,7 @@ enum Item {
     Slowdown,
     HardDrop,
     Ghost,
+    NextPiece,
     Fullscreen,
     PixelScale,
     Reset,
@@ -69,8 +90,6 @@ const PAGES: [(&str, &[Item]); 3] = [
             Item::Key(4),
             Item::Key(5),
             Item::Key(6),
-            Item::Key(7),
-            Item::Key(8),
             Item::Page(1),
         ],
     ),
@@ -83,6 +102,7 @@ const PAGES: [(&str, &[Item]); 3] = [
             Item::Slowdown,
             Item::HardDrop,
             Item::Ghost,
+            Item::NextPiece,
             Item::SaveScores,
             Item::Page(2),
         ],
@@ -97,8 +117,15 @@ fn item_row(i: usize) -> u8 {
 /// The menus' state, outside the original's RAM.
 #[derive(Default)]
 pub(crate) struct Ui {
-    /// The key pressed this frame, by name (for rebinding and Back).
-    pub key: Option<String>,
+    /// The keys this frame.
+    pub keys: Keys,
+    /// The screen up, for what the keys mean (`pc_input`).
+    pub screen: Screen,
+    pub last_mapping: Option<crate::pc_input::Mapping>,
+    /// Keys held across the last change of meaning, ignored until released.
+    pub stale: Vec<String>,
+    /// Name entry: move the cursor on after the letter typed last frame has been drawn.
+    name_advance: bool,
     /// EXIT was chosen.
     pub quit: bool,
     /// The settings changed this frame; the runner hands them to the app.
@@ -123,6 +150,7 @@ impl Item {
             Item::Slowdown => "SLOWDOWN",
             Item::HardDrop => "HARD DROP",
             Item::Ghost => "GHOST",
+            Item::NextPiece => "NEXT PIECE",
             Item::Fullscreen => "FULLSCREEN",
             Item::PixelScale => "PIXEL SCALE",
             Item::Reset => "RESET ALL",
@@ -147,6 +175,7 @@ impl Item {
             Item::Slowdown => on_off(c.rules.slowdown),
             Item::HardDrop => on_off(c.rules.hard_drop),
             Item::Ghost => on_off(c.rules.ghost),
+            Item::NextPiece => if c.next_piece { "SHOW" } else { "HIDE" }.to_string(),
             Item::Fullscreen => on_off(c.fullscreen),
             Item::PixelScale => if c.integer_scale { "WHOLE" } else { "FIT" }.to_string(),
             Item::Reset | Item::Page(_) => String::new(),
@@ -179,6 +208,7 @@ impl Item {
             Item::Slowdown => r.slowdown = !r.slowdown,
             Item::HardDrop => r.hard_drop = !r.hard_drop,
             Item::Ghost => r.ghost = !r.ghost,
+            Item::NextPiece => c.next_piece = !c.next_piece,
             Item::Fullscreen => c.fullscreen = !c.fullscreen,
             Item::PixelScale => c.integer_scale = !c.integer_scale,
             Item::Key(_) | Item::Reset | Item::Page(_) => {}
@@ -190,10 +220,12 @@ impl Game {
     /// The title screen with the START / SETTINGS / EXIT menu in place of `PUSH START`, and no
     /// attract demo. Returns A for the main loop, as `gameMode_titleScreen` does.
     pub(crate) async fn title_menu(&mut self) -> u8 {
+        self.ui.screen = Screen::TitleMenu;
         self.update_audio2();
         self.vars.render_mode = RENDER_LEGAL_AND_TITLE;
         self.vars.demo_recording = 0;
-        self.vars.display_next_piece = 0;
+        // The next-piece preview is a setting here (Select toggles it in the original).
+        self.vars.display_next_piece = !self.options.config.next_piece as u8;
         self.load_screen(
             CHR_TITLE_MENU,
             layout::GAME_MODE_TITLE_SCREEN_COPY_MENU_PALETTE,
@@ -211,16 +243,17 @@ impl Game {
         self.vars.frame_counter.0 &= 0x00FF;
         loop {
             self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
-            let pressed = self.vars.newly_pressed_buttons_player1;
+            let keys = self.menu_pressed();
             let cursor = &mut self.ui.title_cursor;
-            if pressed == buttons::UP || pressed == buttons::DOWN {
-                *cursor = (*cursor + if pressed == buttons::UP { 2 } else { 1 }) % 3;
+            if keys.contains(&MenuKey::Up) || keys.contains(&MenuKey::Down) {
+                *cursor = (*cursor + if keys.contains(&MenuKey::Up) { 2 } else { 1 }) % 3;
                 self.vars.sfx_init[1] = SFX_MENU_OPTION;
-            } else if pressed == buttons::START {
+            } else if keys.contains(&MenuKey::Confirm) {
                 match *cursor {
                     0 => {
                         self.vars.sfx_init[1] = SFX_MENU_SCREEN;
                         self.vars.game_mode = self.vars.game_mode.wrapping_add(1);
+                        self.ui.screen = Screen::Game;
                         return SFX_MENU_SCREEN;
                     }
                     1 => {
@@ -240,6 +273,7 @@ impl Game {
     /// The settings screen, until Back (or B). Changes take effect, and are saved by the app,
     /// as they're made.
     async fn settings_screen(&mut self) {
+        self.ui.screen = Screen::Settings;
         self.vars.render_mode = RENDER_SETTINGS;
         self.load_screen(
             CHR_TITLE_MENU,
@@ -258,11 +292,12 @@ impl Game {
         let mut capturing = false;
         loop {
             self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
-            let pressed = self.vars.newly_pressed_buttons_player1;
+            let keys = self.menu_pressed();
+            let has = |k| keys.contains(&k);
             let items = PAGES[page].1;
             let item = items[cursor];
             if capturing {
-                if let Some(key) = self.ui.key.take() {
+                if let Some(key) = self.ui.keys.pressed.first().cloned() {
                     let Item::Key(i) = item else { unreachable!() };
                     let mut config = self.options.config.clone();
                     // A key already bound elsewhere swaps with this one.
@@ -275,15 +310,16 @@ impl Game {
                     self.vars.sfx_init[1] = SFX_MENU_OPTION;
                     capturing = false;
                 }
-            } else if self.back_pressed() || pressed == buttons::B {
+            } else if has(MenuKey::Back) {
                 self.vars.sfx_init[1] = SFX_MENU_SCREEN;
                 self.ui.title_cursor = 1;
+                self.ui.screen = Screen::TitleMenu;
                 return;
-            } else if pressed == buttons::UP || pressed == buttons::DOWN {
-                cursor = (cursor + if pressed == buttons::UP { items.len() - 1 } else { 1 }) % items.len();
+            } else if has(MenuKey::Up) || has(MenuKey::Down) {
+                cursor = (cursor + if has(MenuKey::Up) { items.len() - 1 } else { 1 }) % items.len();
                 self.vars.sfx_init[1] = SFX_MENU_OPTION;
-            } else if pressed == buttons::LEFT || pressed == buttons::RIGHT || pressed == buttons::START {
-                let start = pressed == buttons::START;
+            } else if has(MenuKey::Left) || has(MenuKey::Right) || has(MenuKey::Confirm) {
+                let start = has(MenuKey::Confirm);
                 match item {
                     Item::Key(_) if start => {
                         capturing = true;
@@ -301,7 +337,7 @@ impl Game {
                     Item::Key(_) | Item::Reset | Item::Page(_) => {}
                     _ => {
                         let mut config = self.options.config.clone();
-                        item.step(&mut config, if pressed == buttons::LEFT { -1 } else { 1 }, start);
+                        item.step(&mut config, if has(MenuKey::Left) { -1 } else { 1 }, start);
                         self.queue_text(item_row(cursor), VALUE_COL, &format!("{:<1$}", item.value(&config), VALUE_WIDTH));
                         if config != self.options.config {
                             self.set_config(config);
@@ -310,7 +346,6 @@ impl Game {
                 }
                 self.vars.sfx_init[1] = if matches!(item, Item::Page(_)) && start { SFX_MENU_SCREEN } else { SFX_MENU_OPTION };
             }
-            self.ui.key = None;
             let item = PAGES[page].1[cursor];
             self.stage_menu_arrows(item_row(cursor), LABEL_COL, item.label().len());
         }
@@ -342,6 +377,45 @@ impl Game {
         }
     }
 
+    /// While Shift is held on the level menu, the level grid reads 10..19 (Shift+Enter starts
+    /// there). Two digits don't fit a cell in the NES font, so the app draws them over the
+    /// finished picture in a narrow font of its own, the original digits' height, in each
+    /// cell's own colours.
+    pub(crate) fn draw_overlays(&self, pixels: &mut [u8]) {
+        if self.vars.game_mode != 3 || !self.shift_held() || self.vars.current_ppu_mask & 0x08 == 0 {
+            return;
+        }
+        for level in 0..10usize {
+            let (row, col) = (LEVEL_GRID.0 + 2 * (level / 5), LEVEL_GRID.1 + 2 * (level % 5));
+            let (x0, y0) = (col * 8, row * 8);
+            let cell = |x: usize, y: usize| (y0 + y) * crate::frame::WIDTH + x0 + x;
+            // The cell's colours: the commonest is its background, the next its digit.
+            let mut counts = [0usize; 64];
+            for y in 0..8 {
+                for x in 0..8 {
+                    counts[(pixels[cell(x, y)] & 0x3F) as usize] += 1;
+                }
+            }
+            let mut order: Vec<usize> = (0..64).filter(|&c| counts[c] > 0).collect();
+            order.sort_by_key(|&c| std::cmp::Reverse(counts[c]));
+            let (Some(&bg), Some(&fg)) = (order.first(), order.get(1)) else { continue };
+            for y in 0..8 {
+                for x in 0..8 {
+                    pixels[cell(x, y)] = bg as u8;
+                }
+            }
+            for (i, digit) in [1, level].into_iter().enumerate() {
+                for (y, bits) in NARROW_DIGITS[digit].iter().enumerate() {
+                    for x in 0..3 {
+                        if bits >> (2 - x) & 1 != 0 {
+                            pixels[cell(i * 4 + x, y)] = fg as u8;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// The legal screen's first wait (255 frames), which Start skips here; the original's
     /// can't be skipped until it's over.
     pub(crate) async fn skippable_legal_wait(&mut self, frames: u8) {
@@ -354,23 +428,79 @@ impl Game {
         }
     }
 
-    /// The key bound to Back was pressed this frame.
-    pub(crate) fn back_pressed(&self) -> bool {
-        self.ui.key.as_deref() == Some(self.options.config.keys[BACK].as_str())
-    }
-
-    /// Under "PAUSE": which key quits the game, as two centred lines of sprites in the same
-    /// font (the game's sprites and background share the play screen's tiles).
-    pub(crate) fn stage_pause_hint(&mut self) {
-        let label = key_label(&self.options.config.keys[BACK]);
-        for (text, y) in [(label.as_str(), PAUSE_HINT_Y), ("TO QUIT", PAUSE_HINT_Y + 10)] {
-            let tiles = self.text_tiles(text);
-            let x0 = PAUSE_CENTRE_X - 4 * tiles.len() as u8;
-            for (i, t) in tiles.into_iter().enumerate() {
-                if t != BLANK_TILE {
-                    self.stage_sprite(y, t, 0, x0 + 8 * i as u8);
+    /// The pause screen's menu (the app's): RESUME / QUIT under "PAUSE", the same arrows.
+    /// Enter chooses, Escape resumes. Returns whether to quit the game.
+    pub(crate) async fn pause_menu(&mut self) -> bool {
+        self.ui.screen = Screen::Pause;
+        let mut cursor = 0;
+        let quit = loop {
+            self.vars.sprite_x_offset = 0x70;
+            self.vars.sprite_y_offset = 0x77;
+            self.vars.sprite_index_in_oam_content_lookup = 0x05;
+            self.load_sprite_into_oam_staging();
+            for (text, y) in PAUSE_ITEMS {
+                for (i, t) in self.text_tiles(text).into_iter().enumerate() {
+                    self.stage_sprite(y, t, 0, PAUSE_X + 8 * i as u8);
                 }
             }
+            if self.vars.frame_counter.0 as u8 & MENU_CURSOR_MASK != 0 {
+                let (text, y) = PAUSE_ITEMS[cursor];
+                self.stage_sprite(y, ARROW_TILE, 0, PAUSE_X - 9);
+                self.stage_sprite(y, ARROW_TILE, FLIP_H, PAUSE_X + 8 * text.len() as u8 + 1);
+            }
+            self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
+            let keys = self.menu_pressed();
+            if keys.contains(&MenuKey::Back) {
+                break false;
+            }
+            if keys.contains(&MenuKey::Confirm) {
+                break cursor == 1;
+            }
+            if keys.contains(&MenuKey::Up) || keys.contains(&MenuKey::Down) {
+                cursor ^= 1;
+                self.vars.sfx_init[1] = SFX_MENU_OPTION;
+            }
+        };
+        self.ui.screen = Screen::Game;
+        quit
+    }
+
+    /// Name entry by typing (the app's): a letter, digit or `-,/()". ` replaces the one under
+    /// the cursor, which moves on once it's drawn; Backspace moves back and blanks.
+    pub(crate) fn type_name(&mut self) {
+        const SPACE: u8 = 43;
+        if std::mem::take(&mut self.ui.name_advance) {
+            let next = self.vars.high_score_entry_name_offset_for_letter + 1;
+            self.vars.high_score_entry_name_offset_for_letter = if next < 6 { next } else { 0 };
+        }
+        let shift = self.shift_held();
+        let Some(key) = self.ui.keys.pressed.first().cloned() else { return };
+        let typed = match key.as_str() {
+            k if k.len() == 4 && k.starts_with("Key") => k.chars().nth(3),
+            "Digit9" if shift => Some('('),
+            "Digit0" if shift => Some(')'),
+            k if k.starts_with("Digit") || k.starts_with("Numpad") && k.len() == 7 => k.chars().last(),
+            "Minus" => Some('-'),
+            "Comma" => Some(','),
+            "Slash" => Some('/'),
+            "Period" => Some('.'),
+            "Quote" => Some('"'),
+            "Space" => Some(' '),
+            "Backspace" => {
+                let at = self.vars.high_score_entry_name_offset_for_letter;
+                self.vars.high_score_entry_name_offset_for_letter = if at == 0 { 5 } else { at - 1 };
+                let i = self.entered_letter_index();
+                self.vars.high_score_names[i] = SPACE;
+                self.vars.sfx_init[1] = SFX_MENU_OPTION;
+                None
+            }
+            _ => None,
+        };
+        if let Some(c) = typed.and_then(|c| NAME_CHARS.find(c)) {
+            let i = self.entered_letter_index();
+            self.vars.high_score_names[i] = c as u8;
+            self.vars.sfx_init[1] = SFX_MENU_OPTION;
+            self.ui.name_advance = true;
         }
     }
 

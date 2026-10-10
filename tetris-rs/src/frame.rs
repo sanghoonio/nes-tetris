@@ -44,8 +44,8 @@ pub struct FrameOut {
 
 struct FrameIn {
     buttons: u8,
-    /// The key pressed this frame, by name (the settings screen's rebinding and Back).
-    key: Option<String>,
+    /// The app's keys, translated per screen (`pc_input`); none for the NES buttons above.
+    keys: Option<crate::pc_input::Keys>,
     pokes: Vec<(u16, u8)>,
 }
 
@@ -135,10 +135,14 @@ impl Game {
     pub(crate) async fn vblank(&mut self) {
         if let Some(io) = self.io.clone() {
             self.ppu.render_frame();
+            let mut pixels = self.ppu.frame_buf.clone();
+            if self.options.menus {
+                self.draw_overlays(&mut pixels[..]);
+            }
             let mut ram = [0; 0x800];
             self.vars.to_ram(&mut ram);
             let out = FrameOut {
-                pixels: self.ppu.frame_buf.clone(),
+                pixels,
                 samples: self.apu.end_frame(),
                 ram,
                 vram: Box::new(self.ppu.vram),
@@ -176,12 +180,18 @@ impl Game {
     /// Hold the buttons `Runner` left for this frame and apply its pokes.
     fn take_input(&mut self, io: &FrameIo) {
         let input = io.input.borrow_mut().take().expect("runner left no input");
-        self.joypads.held[0] = self.left_right(input.buttons);
-        self.ui.key = input.key;
-        // Back works as B (the original's way back) on the game-type and level menus.
-        if self.options.menus && matches!(self.vars.game_mode, 2 | 3) && self.back_pressed() {
-            self.joypads.held[0] |= crate::buttons::B;
-        }
+        let buttons = match input.keys {
+            Some(keys) => {
+                let b = self.translate_keys(&keys);
+                self.ui.keys = keys;
+                b
+            }
+            None => {
+                self.ui.keys = Default::default();
+                input.buttons
+            }
+        };
+        self.joypads.held[0] = self.left_right(buttons);
         if !input.pokes.is_empty() {
             self.vars.with_ram(|ram| {
                 for &(a, v) in &input.pokes {
@@ -317,12 +327,13 @@ impl Runner {
 
     /// As [`Runner::next_frame`], writing `pokes` into RAM at the start of the frame (tests).
     pub fn next_frame_with(&mut self, buttons: u8, pokes: Vec<(u16, u8)>) -> FrameOut {
-        self.step(FrameIn { buttons, key: None, pokes })
+        self.step(FrameIn { buttons, keys: None, pokes })
     }
 
-    /// As [`Runner::next_frame`], also passing the key pressed this frame by name (`KeyX`...).
-    pub fn next_frame_with_key(&mut self, buttons: u8, key: Option<String>) -> FrameOut {
-        self.step(FrameIn { buttons, key, pokes: Vec::new() })
+    /// Run to the end of the next frame with the app's controls: keys by name, which the game
+    /// turns into NES buttons per screen (`pc_input`).
+    pub fn next_frame_keys(&mut self, keys: crate::pc_input::Keys) -> FrameOut {
+        self.step(FrameIn { buttons: 0, keys: Some(keys), pokes: Vec::new() })
     }
 
     fn step(&mut self, input: FrameIn) -> FrameOut {

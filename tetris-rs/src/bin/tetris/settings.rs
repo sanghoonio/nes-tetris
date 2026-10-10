@@ -6,7 +6,6 @@
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-use frontend::KeyCode;
 use tetris_rs::options::{LeftRight, Rules as GameRules};
 use tetris_rs::saved::{Choices, HighScores};
 use tetris_rs::{Config, Saved};
@@ -21,12 +20,46 @@ pub struct Settings {
     pub fullscreen: bool,
     /// Scale the picture by whole numbers only.
     pub integer_scale: bool,
-    pub keys: frontend::Bindings,
+    /// Show the next piece.
+    pub next_piece: bool,
+    pub keys: Keys,
     pub rules: Rules,
     pub last_game: LastGame,
     /// Saved once there is a table to save; absent means the game's own default table.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub high_scores: Option<Table>,
+}
+
+/// The game keys, by winit key name (`ArrowLeft`, `KeyX`, `Space`...). Menu keys are fixed:
+/// arrows, Enter, Escape.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Keys {
+    pub move_left: String,
+    pub move_right: String,
+    pub soft_drop: String,
+    pub hard_drop: String,
+    pub rotate_right: String,
+    pub rotate_left: String,
+    pub pause: String,
+}
+
+impl Default for Keys {
+    fn default() -> Self {
+        Keys::from_game(&Config::default().keys)
+    }
+}
+
+impl Keys {
+    fn from_game(k: &[String; 7]) -> Self {
+        let [move_left, move_right, soft_drop, hard_drop, rotate_right, rotate_left, pause] = k.clone();
+        Keys { move_left, move_right, soft_drop, hard_drop, rotate_right, rotate_left, pause }
+    }
+
+    fn to_game(&self) -> [String; 7] {
+        let k = self.clone();
+        [k.move_left, k.move_right, k.soft_drop, k.hard_drop, k.rotate_right, k.rotate_left, k.pause]
+    }
 }
 
 /// Rule changes; the defaults are the original game's.
@@ -118,7 +151,8 @@ impl Default for Settings {
             save_high_scores: true,
             fullscreen: false,
             integer_scale: false,
-            keys: frontend::Bindings::default(),
+            next_piece: true,
+            keys: Keys::default(),
             rules: Rules::default(),
             last_game: LastGame::default(),
             high_scores: None,
@@ -177,44 +211,31 @@ impl Settings {
 
     /// The settings screen's view of these settings.
     pub fn config(&self) -> Config {
-        let k = &self.keys;
-        let keys = [k.up, k.down, k.left, k.right, k.a, k.b, k.start, k.select, k.back].map(key_name);
         Config {
-            keys,
+            keys: self.keys.to_game(),
             volume: (self.volume.clamp(0.0, 1.0) * 10.0).round() as u8,
             save_high_scores: self.save_high_scores,
             fullscreen: self.fullscreen,
             integer_scale: self.integer_scale,
+            next_piece: self.next_piece,
             rules: self.rules.to_game(),
         }
     }
 
     /// Take what the settings screen changed.
     pub fn apply(&mut self, c: &Config) {
-        let key = |i: usize, old: KeyCode| key_code(&c.keys[i]).unwrap_or(old);
-        let k = self.keys.clone();
-        self.keys = frontend::Bindings {
-            up: key(0, k.up),
-            down: key(1, k.down),
-            left: key(2, k.left),
-            right: key(3, k.right),
-            a: key(4, k.a),
-            b: key(5, k.b),
-            start: key(6, k.start),
-            select: key(7, k.select),
-            back: key(8, k.back),
-        };
+        self.keys = Keys::from_game(&c.keys);
         self.volume = c.volume as f32 / 10.0;
         self.save_high_scores = c.save_high_scores;
         self.fullscreen = c.fullscreen;
         self.integer_scale = c.integer_scale;
+        self.next_piece = c.next_piece;
         self.rules = Rules::from_game(&c.rules);
     }
 
     /// The window's view of these settings.
     pub fn frontend(&self) -> frontend::Options {
         frontend::Options {
-            bindings: self.keys.clone(),
             volume: self.volume,
             fullscreen: self.fullscreen,
             integer_scale: self.integer_scale,
@@ -226,18 +247,6 @@ impl Settings {
         let high_scores = self.high_scores.as_ref().filter(|_| self.save_high_scores).map(Table::to_game);
         Saved { high_scores, choices: self.last_game.to_game() }
     }
-}
-
-/// A key's name as the settings file writes it (`KeyX`, `ArrowUp`...).
-pub fn key_name(code: KeyCode) -> String {
-    match toml::Value::try_from(code) {
-        Ok(toml::Value::String(s)) => s,
-        _ => format!("{code:?}"),
-    }
-}
-
-pub fn key_code(name: &str) -> Option<KeyCode> {
-    toml::Value::String(name.to_string()).try_into().ok()
 }
 
 impl LastGame {
@@ -303,7 +312,7 @@ mod tests {
     #[test]
     fn round_trips() {
         let mut s = Settings::default();
-        s.keys.a = frontend::KeyCode::KeyK;
+        s.keys.rotate_right = "KeyK".into();
         s.rules.hard_drop = true;
         s.rules.left_right = "last".into();
         s.last_game = LastGame { game_type: "B".into(), music: "off".into(), level: 12, height: 4 };
@@ -320,16 +329,14 @@ mod tests {
         let mut again = Settings::default();
         again.apply(&s.config());
         assert_eq!((again.keys, again.rules), (s.keys.clone(), s.rules.clone()));
-        assert_eq!(key_name(KeyCode::ShiftRight), "ShiftRight");
-        assert_eq!(key_code("Digit7"), Some(KeyCode::Digit7));
     }
 
     #[test]
     fn missing_fields_take_defaults() {
-        let s: Settings = toml::from_str("volume = 0.5\n[keys]\nstart = \"Space\"\n").unwrap();
+        let s: Settings = toml::from_str("volume = 0.5\n[keys]\npause = \"KeyP\"\n").unwrap();
         assert_eq!(s.volume, 0.5);
-        assert_eq!(s.keys.start, frontend::KeyCode::Space);
-        assert_eq!(s.keys.a, frontend::KeyCode::KeyX);
+        assert_eq!(s.keys.pause, "KeyP");
+        assert_eq!(s.keys.rotate_right, "KeyX");
         assert!(s.save_high_scores);
         assert!(s.saved().high_scores.is_none());
     }

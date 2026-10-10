@@ -6,8 +6,7 @@ publish = false
 description = "Window, keyboard and audio runner shared by the NES Tetris ports"
 
 [dependencies]
-winit = { version = "0.30", features = ["serde"] }
-serde = { version = "1", features = ["derive"] }
+winit = "0.30"
 softbuffer = "0.4"
 cpal = "0.18"
 gilrs = "0.11"

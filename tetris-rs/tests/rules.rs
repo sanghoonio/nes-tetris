@@ -3,18 +3,20 @@
 
 use std::sync::Arc;
 use tetris_rs::options::{LeftRight, Rules};
-use tetris_rs::{buttons, Config, FrameOut, Options, Rom, Runner, Vars};
+use tetris_rs::{buttons, Config, FrameOut, Keys, Options, Rom, Runner, Vars};
 
 /// A game of A-type, level 0, with `rules`, at the first frame the first piece is under
-/// control.
+/// control. The menus are passed with Enter; the rules are then driven with NES buttons (the
+/// buttons the game keys stand for).
 fn game(rules: Rules) -> (Runner, Vars) {
     let rom = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../tetris.nes")).unwrap();
     let options = Options { menus: true, config: Config { rules, ..Config::default() } };
     let mut game = Runner::with_options(Arc::new(Rom::new(&rom).unwrap()), None, None, options);
     for f in 0..2000 {
-        let start = [300, 330, 360, 390].iter().any(|&s| f == s);
-        let v = Vars::from_ram(&game.next_frame(if start { buttons::START } else { 0 }).ram);
-        if f > 390 && v.game_mode == 4 && v.player1.play_state == 1 && v.player1.current_piece < 0x13 {
+        let enter = [10, 40, 70, 100].contains(&f);
+        let key = |on: bool| if on { vec!["Enter".to_string()] } else { vec![] };
+        let v = Vars::from_ram(&game.next_frame_keys(Keys { held: key(enter), pressed: key(enter) }).ram);
+        if f > 100 && v.game_mode == 4 && v.player1.play_state == 1 && v.player1.current_piece < 0x13 {
             return (game, v);
         }
     }

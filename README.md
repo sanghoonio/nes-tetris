@@ -11,19 +11,28 @@ The readable game's binary embeds the ROM at build time (`tetris-rs/build.rs`, f
 or `tetris.nes`; the copy stays under the gitignored `target/`), so the app runs on its own. Without
 `--install` the app is left at `target/Tetris.app`. The recompile reads the ROM at run time.
 
-The app's title screen has START / SETTINGS / EXIT (no attract demo); Start (Enter) skips the
-legal screen at once, Back (Escape) works as B on the game-type and level menus, and Back on
-the pause screen quits the game to the title. SETTINGS has three pages
-in the game's own style: CONTROLS (every key, Back included), GAME (DAS delay and repeat,
-Left+Right handling, the Down+Left+Right slowdown, hard drop on Up, ghost piece, saving high
-scores) and SYSTEM (volume, fullscreen, pixel scale, reset). Every rule's default is the
-original game. Settings, the last game's choices and the high scores are kept in
-`~/Library/Application Support/Tetris/settings.toml`, written on first launch and saved as
-they change. Escape is Back, not quit; quit with EXIT, Cmd+Q or by closing the window.
+The app's title screen has START / SETTINGS / EXIT (no attract demo). Controls are PC-style,
+one job per key:
 
-Default keys: arrows, X = A (rotate clockwise), Z = B (anticlockwise), Enter = Start, Right
-Shift = Select, Escape = Back. Gamepads use the usual emulator layout (d-pad or left stick,
-east button = A, south = B, Start, Select); only keys are remappable.
+- **Menus (fixed):** arrows move, Enter confirms, Escape goes back. Enter skips the legal
+  screen. On the level menu, holding Shift shows levels 10-19 and Shift+Enter starts there; on
+  B-type, stepping off the level grid's right edge moves to the height grid and back.
+- **Game (remappable on SETTINGS > CONTROLS):** move left/right (arrows), soft drop (Down),
+  hard drop (Space, when that rule is on), rotate right/left (X/Z), pause (Escape). The pause
+  screen is a RESUME / QUIT menu.
+- **Name entry:** type the name; Backspace, Left/Right, Up/Down to cycle a letter, Enter.
+- **Gamepads:** d-pad or left stick; in menus south (or Start) confirms and east goes back; in
+  play east/south rotate, north hard-drops, Start pauses.
+
+SETTINGS has three pages in the game's style: CONTROLS (the game keys), GAME (DAS delay and
+repeat, Left+Right handling, the Down+Left+Right slowdown, hard drop, ghost piece, next piece,
+saving high scores) and SYSTEM (volume, fullscreen, pixel scale, reset). Every rule's default
+is the original game. Settings, the last game's choices and the high scores are kept in
+`~/Library/Application Support/Tetris/settings.toml`, written on first launch and saved as
+they change. Quit with EXIT, Cmd+Q or by closing the window.
+
+The recompile (`tetris-recomp`) keeps NES-controller keys: arrows, X = A, Z = B, Enter = Start,
+Right Shift = Select.
 
 ## What's here
 
@@ -49,7 +58,7 @@ Each layer is checked against the one below it:
 3. **The whole readable game vs the recompile** (`tetris-rs/tests/frames.rs`): every named variable
    and the picture at every frame.
 
-The app's additions (`tetris-rs/src/options.rs`, `pc_menus.rs`) are off in the runs above, which
+The app's additions (`tetris-rs/src/options.rs`, `pc_input.rs`, `pc_menus.rs`) are off in the runs above, which
 are the original game. `tests/frames.rs` also runs with the title menu on (START chosen at once)
 and checks that everything after the title still matches; `tests/menus.rs` and
 `tests/rules.rs` check the menus and each rule change by behaviour.

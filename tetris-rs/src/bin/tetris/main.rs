@@ -12,8 +12,8 @@
 mod settings;
 
 use std::sync::Arc;
-use settings::{key_name, LastGame, Settings, Table};
-use tetris_rs::{Options, Rom, Runner, Saved};
+use settings::{LastGame, Settings, Table};
+use tetris_rs::{Keys, Options, Rom, Runner, Saved};
 
 /// The ROM this program was built with.
 const ROM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/tetris.nes"));
@@ -54,8 +54,9 @@ impl Readable {
 }
 
 impl frontend::Game for Readable {
-    fn frame(&mut self, buttons: u8, key: Option<frontend::KeyCode>) -> (Box<[u8; 256 * 240]>, Vec<f32>) {
-        let out = self.runner.next_frame_with_key(buttons, key.map(key_name));
+    fn frame(&mut self, input: &frontend::Input) -> (Box<[u8; 256 * 240]>, Vec<f32>) {
+        let keys = Keys { held: input.held.clone(), pressed: input.pressed.clone() };
+        let out = self.runner.next_frame_keys(keys);
         if let Some(config) = &out.config {
             self.settings.apply(config);
             self.settings.save();

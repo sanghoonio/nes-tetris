@@ -80,6 +80,9 @@ impl Game {
         self.vars.high_score_entry_name_offset_for_letter = 0;
         self.vars.oam_staging[0] = 0;
         self.vars.sprite_y_offset = self.rom.table(layout::HIGH_SCORE_POS_TO_Y, (raw_pos & 0x03) as usize);
+        if self.options.menus {
+            self.ui.screen = crate::pc_input::Screen::NameEntry;
+        }
 
         loop {
             self.vars.oam_staging[0] = 0;
@@ -88,6 +91,9 @@ impl Game {
             self.vars.sprite_index_in_oam_content_lookup =
                 if self.vars.frame_counter.0 as u8 & CURSOR_FLICKER_MASK == 0 { CURSOR_SPRITE_FLICKER } else { CURSOR_SPRITE };
             self.load_sprite_into_oam_staging();
+            if self.options.menus {
+                self.type_name();
+            }
 
             let pressed = self.vars.newly_pressed_buttons_player1;
             if pressed & buttons::START != 0 {
@@ -136,12 +142,13 @@ impl Game {
             self.vars.out_of_date_render_flags = RENDER_HIGH_SCORE_LETTER;
             self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
         }
+        self.ui.screen = crate::pc_input::Screen::Game;
         self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
     }
 
     /// Index into `highScoreNames` of the letter under the cursor: the row's offset plus the
     /// letter's offset (an 8-bit sum).
-    fn entered_letter_index(&self) -> usize {
+    pub(crate) fn entered_letter_index(&self) -> usize {
         self.vars
             .high_score_entry_name_offset_for_row
             .wrapping_add(self.vars.high_score_entry_name_offset_for_letter) as usize
@@ -158,11 +165,13 @@ impl Game {
     pub async fn ending_animation(&mut self) {
         self.vars.sprite_index_in_oam_content_lookup = 2;
         self.vars.render_mode = RENDER_ENDING_ANIMATION;
+        let screen = std::mem::replace(&mut self.ui.screen, crate::pc_input::Screen::Ending);
         if self.vars.game_type != 0 {
             self.ending_animation_b().await;
         } else {
             self.ending_animation_a().await;
         }
+        self.ui.screen = screen;
     }
 
     /// `endingAnimationA`: the rocket ending. The rocket lifts off (`ending_custom_vars[0]` is

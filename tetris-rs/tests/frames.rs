@@ -90,11 +90,18 @@ fn compare_with(name: &str, frames: usize, mut script: Script, options: Options)
     for f in 0..frames {
         let (buttons, pokes) = script(f, &ram);
         let theirs = original.next_frame_with(buttons, true, pokes.clone());
-        let mine = ours.next_frame_with(buttons, pokes);
+        // The app's title menu reads keys: Start is Enter there.
+        let mine = if menus && ram[0xC0] == 1 {
+            let enter: Vec<String> = if buttons & 0x10 != 0 { vec!["Enter".into()] } else { vec![] };
+            ours.next_frame_keys(tetris_rs::Keys { held: enter.clone(), pressed: enter })
+        } else {
+            ours.next_frame_with(buttons, pokes)
+        };
         let mut diffs = var_diffs(&mine.ram, &theirs.ram);
-        if menus && theirs.ram[0xC0] == 1 {
-            // The menu's arrows, staged as sprites.
-            diffs.retain(|d| !d.starts_with("oam_staging"));
+        if menus && (theirs.ram[0xC0] == 1 || since_title < 3) {
+            // The menu's arrows, staged as sprites; and its keys, which aren't NES buttons
+            // (until the frame after it hands over).
+            diffs.retain(|d| !d.starts_with("oam_staging") && !d.contains("buttons_player1"));
         }
         assert!(diffs.is_empty(), "{name}: frame {f} (game mode {}, state {}):\n  {}",
             theirs.ram[0xC0], theirs.ram[0xA7], diffs.join("\n  "));

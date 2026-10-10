@@ -4,12 +4,9 @@
 //! indices) and the audio generated during it. [`run`] owns the window and drives the game at the
 //! NES's 60.0988 Hz.
 //!
-//! Keys come from [`Bindings`]; the defaults are arrows = D-pad, X = A (rotate clockwise),
-//! Z = B (rotate anticlockwise), Enter = Start, Right Shift = Select, Escape = Back. Quit with
-//! Cmd+Q or by closing the window.
-//!
-//! Gamepads work too, in the usual emulator layout: d-pad or left stick, east face button = A,
-//! south = B, Start, Select (Back/View/Share).
+//! The window reports the keys held and pressed each frame by name ([`Input`]), gamepads
+//! included; what they mean is the game's business. Quit with Cmd+Q or by closing the window
+//! (or when the game asks).
 
 use std::collections::VecDeque;
 use std::num::NonZeroU32;
@@ -40,60 +37,19 @@ pub const BTN_DOWN: u8 = 0x04;
 pub const BTN_LEFT: u8 = 0x02;
 pub const BTN_RIGHT: u8 = 0x01;
 
-/// The key for each NES button, and for Back (the settings screen's way out).
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(default)]
-pub struct Bindings {
-    pub up: KeyCode,
-    pub down: KeyCode,
-    pub left: KeyCode,
-    pub right: KeyCode,
-    pub a: KeyCode,
-    pub b: KeyCode,
-    pub start: KeyCode,
-    pub select: KeyCode,
-    pub back: KeyCode,
-}
-
-impl Default for Bindings {
-    fn default() -> Self {
-        Bindings {
-            up: KeyCode::ArrowUp,
-            down: KeyCode::ArrowDown,
-            left: KeyCode::ArrowLeft,
-            right: KeyCode::ArrowRight,
-            a: KeyCode::KeyX,
-            b: KeyCode::KeyZ,
-            start: KeyCode::Enter,
-            select: KeyCode::ShiftRight,
-            back: KeyCode::Escape,
-        }
-    }
-}
-
-impl Bindings {
-    /// The joypad bit `key` is bound to, if any.
-    fn button(&self, key: KeyCode) -> Option<u8> {
-        [
-            (self.up, BTN_UP),
-            (self.down, BTN_DOWN),
-            (self.left, BTN_LEFT),
-            (self.right, BTN_RIGHT),
-            (self.a, BTN_A),
-            (self.b, BTN_B),
-            (self.start, BTN_START),
-            (self.select, BTN_SELECT),
-        ]
-        .into_iter()
-        .find(|&(k, _)| k == key)
-        .map(|(_, bit)| bit)
-    }
+/// The keys this frame, by name: winit `KeyCode` names (`KeyX`, `ArrowUp`, `Enter`) and
+/// `Pad*` for gamepad buttons (`PadSouth`, `PadEast`, `PadNorth`, `PadWest`, `PadStart`,
+/// `PadSelect`, and `PadUp`/`PadDown`/`PadLeft`/`PadRight` for the d-pad or left stick).
+#[derive(Clone, Debug, Default)]
+pub struct Input {
+    pub held: Vec<String>,
+    /// Pressed since the last frame, in order.
+    pub pressed: Vec<String>,
 }
 
 /// How the window plays the game.
 #[derive(Clone, Debug)]
 pub struct Options {
-    pub bindings: Bindings,
     /// Output volume, 0.0..=1.0.
     pub volume: f32,
     pub fullscreen: bool,
@@ -104,21 +60,20 @@ pub struct Options {
 
 impl Default for Options {
     fn default() -> Self {
-        Options { bindings: Bindings::default(), volume: 1.0, fullscreen: false, integer_scale: false }
+        Options { volume: 1.0, fullscreen: false, integer_scale: false }
     }
 }
 
 pub trait Game {
-    /// Run one frame holding `buttons`; `key` is a key pressed since the last frame (for
-    /// rebinding). Return the finished frame and its audio (mono, [-1, 1]).
-    fn frame(&mut self, buttons: u8, key: Option<KeyCode>) -> (Box<[u8; WIDTH * HEIGHT]>, Vec<f32>);
+    /// Run one frame with `input`. Return the finished frame and its audio (mono, [-1, 1]).
+    fn frame(&mut self, input: &Input) -> (Box<[u8; WIDTH * HEIGHT]>, Vec<f32>);
 
     /// Checked after each frame: close the window.
     fn quit(&self) -> bool {
         false
     }
 
-    /// Checked after each frame: new bindings or volume to use from now on.
+    /// Checked after each frame: new volume or display settings to use from now on.
     fn take_options(&mut self) -> Option<Options> {
         None
     }
@@ -148,12 +103,12 @@ pub fn run<G: Game + 'static>(title: &str, options: Options, make_game: impl FnO
         window: None,
         surface: None,
         game,
-        buttons: 0,
+        held: Vec::new(),
+        pressed: Vec::new(),
+        pad_held: Vec::new(),
         next_frame: Instant::now(),
         frame: Box::new([0x0F; WIDTH * HEIGHT]),
         audio,
-        bindings: options.bindings,
-        key: None,
         fullscreen: options.fullscreen,
         integer_scale: options.integer_scale,
         pads: gilrs::Gilrs::new().map_err(|e| eprintln!("gamepads unavailable: {e}")).ok(),
@@ -166,13 +121,14 @@ struct App<G> {
     window: Option<Rc<Window>>,
     surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
     game: G,
-    buttons: u8,
+    /// Keys held, and pressed since the last frame.
+    held: Vec<KeyCode>,
+    pressed: Vec<String>,
+    /// Gamepad buttons held last frame, by name.
+    pad_held: Vec<String>,
     next_frame: Instant,
     frame: Box<[u8; WIDTH * HEIGHT]>,
     audio: Audio,
-    bindings: Bindings,
-    /// A key pressed since the last frame.
-    key: Option<KeyCode>,
     fullscreen: bool,
     integer_scale: bool,
     pads: Option<gilrs::Gilrs>,
@@ -199,13 +155,15 @@ impl<G: Game> ApplicationHandler for App<G> {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::KeyboardInput { event, .. } => {
                 let PhysicalKey::Code(code) = event.physical_key else { return };
-                if event.state == ElementState::Pressed && !event.repeat {
-                    self.key.get_or_insert(code);
-                }
-                let Some(bit) = self.bindings.button(code) else { return };
                 match event.state {
-                    ElementState::Pressed => self.buttons |= bit,
-                    ElementState::Released => self.buttons &= !bit,
+                    ElementState::Pressed if !event.repeat => {
+                        self.pressed.push(key_name(code));
+                        if !self.held.contains(&code) {
+                            self.held.push(code);
+                        }
+                    }
+                    ElementState::Pressed => {}
+                    ElementState::Released => self.held.retain(|&k| k != code),
                 }
             }
             WindowEvent::RedrawRequested => self.draw(),
@@ -221,13 +179,12 @@ impl<G: Game> ApplicationHandler for App<G> {
                 self.next_frame = now;
             }
             while self.next_frame <= now {
-                let buttons = self.buttons | self.pad_buttons();
-                let (frame, samples) = self.game.frame(buttons, self.key.take());
+                let input = self.input();
+                let (frame, samples) = self.game.frame(&input);
                 self.frame = frame;
                 self.audio.push(&samples);
                 self.next_frame += FRAME_TIME;
                 if let Some(options) = self.game.take_options() {
-                    self.bindings = options.bindings;
                     self.audio.volume = options.volume.clamp(0.0, 1.0);
                     self.integer_scale = options.integer_scale;
                     if options.fullscreen != self.fullscreen {
@@ -255,26 +212,39 @@ impl<G> App<G> {
         }
     }
 
+    /// This frame's keys: the keyboard's, plus gamepad buttons by name.
+    fn input(&mut self) -> Input {
+        let pads = self.pad_names();
+        let mut pressed = std::mem::take(&mut self.pressed);
+        pressed.extend(pads.iter().filter(|p| !self.pad_held.contains(p)).cloned());
+        let mut held: Vec<String> = self.held.iter().map(|&k| key_name(k)).collect();
+        held.extend(pads.iter().cloned());
+        self.pad_held = pads;
+        Input { held, pressed }
+    }
+
     /// Buttons held on any connected gamepad.
-    fn pad_buttons(&mut self) -> u8 {
+    fn pad_names(&mut self) -> Vec<String> {
         use gilrs::{Axis, Button};
-        let Some(pads) = &mut self.pads else { return 0 };
+        let Some(pads) = &mut self.pads else { return vec![] };
         while pads.next_event().is_some() {}
-        let mut held = 0;
+        let mut held = vec![];
         for (_, pad) in pads.gamepads() {
             let stick = |axis, sign: f32| pad.value(axis) * sign > 0.5;
-            for (on, bit) in [
-                (pad.is_pressed(Button::DPadUp) || stick(Axis::LeftStickY, 1.0), BTN_UP),
-                (pad.is_pressed(Button::DPadDown) || stick(Axis::LeftStickY, -1.0), BTN_DOWN),
-                (pad.is_pressed(Button::DPadLeft) || stick(Axis::LeftStickX, -1.0), BTN_LEFT),
-                (pad.is_pressed(Button::DPadRight) || stick(Axis::LeftStickX, 1.0), BTN_RIGHT),
-                (pad.is_pressed(Button::East), BTN_A),
-                (pad.is_pressed(Button::South), BTN_B),
-                (pad.is_pressed(Button::Start), BTN_START),
-                (pad.is_pressed(Button::Select), BTN_SELECT),
+            for (on, name) in [
+                (pad.is_pressed(Button::DPadUp) || stick(Axis::LeftStickY, 1.0), "PadUp"),
+                (pad.is_pressed(Button::DPadDown) || stick(Axis::LeftStickY, -1.0), "PadDown"),
+                (pad.is_pressed(Button::DPadLeft) || stick(Axis::LeftStickX, -1.0), "PadLeft"),
+                (pad.is_pressed(Button::DPadRight) || stick(Axis::LeftStickX, 1.0), "PadRight"),
+                (pad.is_pressed(Button::South), "PadSouth"),
+                (pad.is_pressed(Button::East), "PadEast"),
+                (pad.is_pressed(Button::North), "PadNorth"),
+                (pad.is_pressed(Button::West), "PadWest"),
+                (pad.is_pressed(Button::Start), "PadStart"),
+                (pad.is_pressed(Button::Select), "PadSelect"),
             ] {
-                if on {
-                    held |= bit;
+                if on && !held.iter().any(|h| h == name) {
+                    held.push(name.to_string());
                 }
             }
         }
@@ -310,6 +280,11 @@ impl<G> App<G> {
         }
         buf.present().expect("present");
     }
+}
+
+/// A key's name: its winit `KeyCode` variant (`KeyX`, `ArrowUp`, `ShiftRight`).
+pub fn key_name(code: KeyCode) -> String {
+    format!("{code:?}")
 }
 
 /// Audio output fed from a small queue; underruns play silence.
