@@ -20,7 +20,17 @@ pub mod ram {
     pub const PLAYER1_SCORE: usize = 0x0073;
     pub const COMPLETED_LINES: usize = 0x0056;
     pub const PLAYFIELD: usize = 0x0400;
+    pub const START_LEVEL: usize = 0x0047;
+    pub const START_HEIGHT: usize = 0x0059;
+    pub const PLAYER1_START_LEVEL: usize = 0x0067;
+    pub const PLAYER1_START_HEIGHT: usize = 0x0079;
+    pub const RENDER_MODE: usize = 0x00BD;
+    pub const GAME_TYPE: usize = 0x00C1;
 }
+
+/// `renderMode` values.
+pub const RENDER_CONGRATULATIONS: u8 = 2;
+pub const RENDER_ENDING: u8 = 4;
 
 /// `gameMode` values.
 pub const MODE_PLAY: u8 = 4;
@@ -42,6 +52,9 @@ pub struct Coverage {
     pub max_lines: u32,
     pub max_score: u32,
     pub level_29_frames: usize,
+    /// Frames of the high-score name entry and of the ending animations.
+    pub congratulations_frames: usize,
+    pub ending_frames: usize,
 }
 
 impl Coverage {
@@ -63,6 +76,11 @@ impl Coverage {
                 }
             }
             MODE_DEMO => self.demo_frames += 1,
+            _ => {}
+        }
+        match now[ram::RENDER_MODE] {
+            RENDER_CONGRATULATIONS => self.congratulations_frames += 1,
+            RENDER_ENDING => self.ending_frames += 1,
             _ => {}
         }
     }
@@ -200,6 +218,82 @@ pub fn line_clears(seed: u64) -> Script {
             }
         }
         last_y = if ram[ram::PLAYER1_PLAY_STATE] == 1 { y } else { last_y.min(0xFE) };
+        (BTN_DOWN, pokes)
+    })
+}
+
+/// Games played to their endings, cycling through every kind: A-type games scored past each
+/// rocket threshold (30k, 50k, 70k, 100k, 120k) and then topped out on purpose, and B-type games
+/// at heights 0..=5 cleared down to 0 lines. Pieces become vertical I pieces over a cleared
+/// playfield with a one-column well, so each drop is a Tetris; Start is pressed sparingly during
+/// endings so the animations play out.
+pub fn endings(seed: u64) -> Script {
+    const WELL_COLUMN: usize = 5;
+    /// (B-type?, A-type target for `score[2]`, B-type height)
+    const GAMES: [(bool, u8, u8); 11] = [
+        (false, 0x03, 0),
+        (true, 0, 0),
+        (false, 0x05, 0),
+        (true, 0, 1),
+        (false, 0x07, 0),
+        (true, 0, 2),
+        (false, 0x10, 0),
+        (true, 0, 3),
+        (false, 0x12, 0),
+        (true, 0, 4),
+        (true, 0, 5),
+    ];
+    let mut rng = Rng(seed);
+    let mut game = 0usize;
+    let mut last_y = 0xFF;
+    let mut since_ending = 0usize;
+    Box::new(move |f, ram| {
+        let (b_type, target, height) = GAMES[game % GAMES.len()];
+        let mode = ram[ram::GAME_MODE];
+        if mode == 2 || mode == 3 {
+            last_y = 0xFF;
+            let pokes = vec![
+                (ram::GAME_TYPE as u16, b_type as u8),
+                (ram::START_LEVEL as u16, 9),
+                (ram::PLAYER1_START_LEVEL as u16, 9),
+                (ram::START_HEIGHT as u16, height),
+                (ram::PLAYER1_START_HEIGHT as u16, height),
+            ];
+            return (if f % 20 == 0 { BTN_START } else { 0 }, pokes);
+        }
+        if mode != MODE_PLAY {
+            return (menu_buttons(f, &mut rng), vec![]);
+        }
+        if ram[ram::RENDER_MODE] == RENDER_ENDING {
+            since_ending += 1;
+            return (if since_ending % 300 == 299 { BTN_START } else { 0 }, vec![]);
+        }
+        since_ending = 0;
+        if on_game_over_screen(ram) || ram[ram::RENDER_MODE] == RENDER_CONGRATULATIONS {
+            if last_y != 0xFF {
+                game += 1;
+                last_y = 0xFF;
+            }
+            return (if f % 20 == 0 { BTN_START } else { 0 }, vec![]);
+        }
+        let y = ram[ram::PLAYER1_TETRIMINO_Y];
+        let scoring = b_type || ram[ram::PLAYER1_SCORE + 2] < target;
+        let mut pokes = vec![];
+        if scoring && ram[ram::PLAYER1_PLAY_STATE] == 1 && y < last_y {
+            pokes.push((ram::CURRENT_PIECE as u16, I_VERTICAL));
+            pokes.push((ram::PLAYER1_CURRENT_PIECE as u16, I_VERTICAL));
+            for row in 0..20 {
+                for col in 0..10 {
+                    let tile = if row < 16 || col == WELL_COLUMN { EMPTY_TILE } else { BLOCK_TILE };
+                    pokes.push(((ram::PLAYFIELD + row * 10 + col) as u16, tile));
+                }
+            }
+        }
+        if ram[ram::PLAYER1_PLAY_STATE] == 1 {
+            last_y = y;
+        } else if last_y == 0xFF {
+            last_y = 0xFE;
+        }
         (BTN_DOWN, pokes)
     })
 }

@@ -112,3 +112,9 @@ fn line_clears_video() {
     let cov = compare("line-clears-video", 6000, true, scripts::line_clears(5));
     assert!(cov.line_clear_frames > 100, "{cov:?}");
 }
+
+#[test]
+fn endings() {
+    let cov = compare("endings", 40000, false, scripts::endings(11));
+    assert!(cov.ending_frames > 1000 && cov.congratulations_frames > 0, "{cov:?}");
+}
