@@ -2,8 +2,9 @@
 //!
 //!     cargo run --release -p tetris-rs --bin tetris [path/to/tetris.nes]
 //!
-//! Your ROM (Tetris (USA)) is built into this program (see `build.rs`), so it runs on its own,
-//! e.g. from the app bundle (`macos/bundle.sh`). A ROM path given here is used instead.
+//! The data and graphics of your ROM (Tetris (USA)), not its code, are built into this program
+//! (see `build.rs`), so it runs on its own, e.g. from the app bundle (`macos/bundle.sh`). A ROM
+//! path given here is used instead.
 //!
 //! Settings, the last game's choices and the high scores are kept in `settings.toml`
 //! (`settings.rs`), saved as they change. The title screen has START / SETTINGS / EXIT
@@ -15,8 +16,8 @@ use std::sync::Arc;
 use settings::{LastGame, Settings, Table};
 use tetris_rs::{Keys, Options, Rom, Runner, Saved};
 
-/// The ROM this program was built with.
-const ROM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/tetris.nes"));
+/// What this program keeps of the ROM it was built with.
+const ROM_DATA: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/rom_data.bin"));
 
 /// `gameMode` once a game (not the demo) is under way.
 const MODE_PLAY: u8 = 4;
@@ -77,11 +78,14 @@ impl frontend::Game for Readable {
 }
 
 fn main() {
-    let file = match std::env::args_os().nth(1) {
-        Some(path) => std::fs::read(&path).unwrap_or_else(|e| panic!("can't read ROM {}: {e}", path.display())),
-        None => ROM.to_vec(),
+    let rom = match std::env::args_os().nth(1) {
+        Some(path) => {
+            let file = std::fs::read(&path).unwrap_or_else(|e| panic!("can't read ROM {}: {e}", path.display()));
+            Rom::new(&file)
+        }
+        None => Rom::from_extracted(ROM_DATA),
     };
-    let rom = Arc::new(Rom::new(&file).unwrap_or_else(|e| panic!("ROM: {e}")));
+    let rom = Arc::new(rom.unwrap_or_else(|e| panic!("ROM: {e}")));
     let settings = Settings::load();
     // Write the file on first launch so it's there to edit.
     if !Settings::dir().join("settings.toml").exists() {

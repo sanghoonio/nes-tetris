@@ -12,6 +12,8 @@ pub mod frame;
 pub mod hw;
 pub mod layout;
 pub mod rom;
+mod rom_data;
+mod rom_extract;
 pub mod shadow;
 pub mod vars;
 

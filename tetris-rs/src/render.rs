@@ -53,9 +53,11 @@ impl Game {
         }
         let one_player = self.vars.number_of_players != 2;
         if one_player && self.vars.out_of_date_render_flags & RENDER_LEVEL != 0 {
-            let shown = self.rom.table(layout::LEVEL_DISPLAY_TABLE, self.vars.player1.level_number as usize);
-            self.ppu_addr(LEVEL);
-            self.two_digs_to_ppu(shown);
+            let level = self.vars.player1.level_number;
+            // A third digit goes in the blank cell before the two, centring all three under
+            // "LEVEL".
+            self.ppu_addr(if level >= 100 { LEVEL - 1 } else { LEVEL });
+            self.draw_level(level);
             self.update_palette_for_level();
             self.vars.out_of_date_render_flags &= !RENDER_LEVEL;
         }
@@ -137,6 +139,16 @@ impl Game {
 
     /// `twoDigsToPPU`: write a BCD byte as two digit tiles (the digit tiles are 0..=9). The
     /// original keeps the byte in `general_counter`, where it stays.
+    /// A level as its true number, at the PPU address set. The original looks it up in
+    /// `levelDisplayTable` (or `byteToBcdTable` on the high score screen) and shows whatever
+    /// lies past the table's end above level 29 (49). Levels 100+ take three cells.
+    pub(crate) fn draw_level(&mut self, level: u8) {
+        if level >= 100 {
+            self.ppu_data(level / 100);
+        }
+        self.two_digs_to_ppu(level_bcd(level));
+    }
+
     pub fn two_digs_to_ppu(&mut self, bcd: u8) {
         self.vars.general_counter = bcd;
         self.ppu_data(bcd >> 4);
@@ -210,15 +222,12 @@ impl Game {
     /// `updatePaletteForLevel`: load the level's colours (it cycles every 10 levels) into
     /// background palette 2 and sprite palette 2.
     ///
-    /// The "mod 10" loop compares signed, so from level 128 up it doesn't reduce at all and the
-    /// colours come from past the end of the table: the famous garbage palettes of very high
-    /// levels.
+    /// The original's "mod 10" loop compares signed, so from level 138 up it stops early and
+    /// the colours come from past the end of the table, mostly from its code: the famous
+    /// garbage palettes of very high levels. Here they keep cycling.
     pub fn update_palette_for_level(&mut self) {
-        let mut level = self.vars.player1.level_number;
-        while (level.wrapping_sub(10) as i8) >= 0 {
-            level = level.wrapping_sub(10);
-        }
-        let entry = layout::COLOR_TABLE + level.wrapping_shl(2) as u16;
+        let level = self.vars.player1.level_number % 10;
+        let entry = layout::COLOR_TABLE + level as u16 * 4;
         for palette in [0x3F08, 0x3F18] {
             self.ppu_addr(palette);
             for i in 0..4 {
@@ -278,3 +287,9 @@ pub const SHADOW: &[Routine] = &[
         scratch: RENDER_SCRATCH,
     },
 ];
+
+/// A level's last two digits in BCD.
+pub(crate) fn level_bcd(level: u8) -> u8 {
+    let last = level % 100;
+    (last / 10) << 4 | last % 10
+}

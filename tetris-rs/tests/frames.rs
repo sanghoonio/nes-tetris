@@ -72,6 +72,21 @@ fn var_diffs(ours: &[u8; 0x800], theirs: &[u8; 0x800]) -> Vec<String> {
     out
 }
 
+/// The level counter's cells ($22B9..$22BB, the first for levels 100+): above level 29 ours
+/// shows the true level where the original shows whatever lies past `levelDisplayTable` (the
+/// app's fix, on in every run).
+const LEVEL_CELLS: [usize; 3] = [0x2B9, 0x2BA, 0x2BB];
+
+/// Whether nametable byte `i`, or the pixel at `p`, is the level counter showing a level past
+/// 29 in the original's RAM.
+fn true_level(original: &[u8; 0x800], i: usize) -> bool {
+    LEVEL_CELLS.contains(&i) && Vars::from_ram(original).player1.level_number >= 30
+}
+fn true_level_pixel(original: &[u8; 0x800], p: usize) -> bool {
+    let (x, y) = (p % 256, p / 256);
+    (168..176).contains(&y) && (200..224).contains(&x) && true_level(original, 0x2B9 + x / 8 - 25)
+}
+
 fn compare(name: &str, frames: usize, script: Script) -> Coverage {
     compare_with(name, frames, script, Options::original())
 }
@@ -110,14 +125,15 @@ fn compare_with(name: &str, frames: usize, mut script: Script, options: Options)
             continue_after_picture(&mut cov, &mut ram, &theirs.ram);
             continue;
         }
-        if let Some(i) = (0..0x800).find(|&i| mine.vram[i] != theirs.vram[i]) {
+        if let Some(i) = (0..0x800).find(|&i| mine.vram[i] != theirs.vram[i] && !true_level(&theirs.ram, i)) {
             panic!("{name}: frame {f} nametable byte ${:04X} (of the 2 KB): ours {:02X} original {:02X}",
                 i, mine.vram[i], theirs.vram[i]);
         }
         assert_eq!(mine.palette, theirs.palette, "{name}: frame {f} palette");
         assert_eq!(mine.oam, theirs.oam, "{name}: frame {f} OAM");
         let px = theirs.pixels.as_ref().unwrap();
-        let bad: Vec<usize> = (8 * 256..232 * 256).filter(|&i| px[i] != mine.pixels[i]).collect();
+        let bad: Vec<usize> =
+            (8 * 256..232 * 256).filter(|&i| px[i] != mine.pixels[i] && !true_level_pixel(&theirs.ram, i)).collect();
         if theirs.drawn_over {
             if !bad.is_empty() {
                 blank_frame_diffs += 1;

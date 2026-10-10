@@ -2,7 +2,9 @@
 
 The 1989 NES version of Tetris, rewritten from scratch as a native desktop game. It plays exactly
 like the original, down to the frame, with a few comforts added on top: proper keyboard
-controls, remappable keys, gamepad support, a settings screen and saved high scores.
+controls, remappable keys, gamepad support, a settings screen and saved high scores. Two of
+the original's display glitches at very high levels are fixed: the level counter shows the
+real level past 29 (up to 255), and the colours keep cycling every 10 levels past 137.
 
 **You need your own copy of the game.** This project contains no Nintendo or Tetris code, graphics
 or music. When you build it, it reads them from a ROM file of NES Tetris (USA) that you provide.
@@ -32,8 +34,9 @@ Not affiliated with or endorsed by Nintendo or The Tetris Company.
 
        cargo run --release
 
-The first build takes a minute or two. The game is built with your ROM inside it, so after that
-the program runs on its own without needing the ROM file.
+The first build takes a minute or two. The build copies the graphics, music and data tables out
+of your ROM and into the game (the original's program code isn't needed and is left out), so
+after that the program runs on its own without the ROM file.
 
 If your ROM is somewhere else, point the build at it instead of copying it:
 
@@ -48,7 +51,7 @@ To get a `Tetris.app` you can open from Finder, Launchpad or Spotlight:
 This puts the app in `~/Applications`. Without `--install`, the app is left at
 `target/Tetris.app`. Drawing the app icon needs [uv](https://docs.astral.sh/uv/).
 
-The app contains your ROM, so don't share it.
+The app contains the graphics and music from your ROM, so don't share it.
 
 ## Controls
 

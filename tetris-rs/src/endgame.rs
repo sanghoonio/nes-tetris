@@ -202,8 +202,7 @@ impl Game {
     /// bonuses added to the score 100 at a time (the bonuses live in `general_counter4` and
     /// `general_counter5`, which the ending's render mode draws).
     async fn ending_animation_b(&mut self) {
-        let display = self.rom.table(layout::LEVEL_DISPLAY_TABLE, self.vars.player1.level_number as usize);
-        let level = display & 0x0F;
+        let level = crate::render::level_bcd(self.vars.player1.level_number) & 0x0F;
         self.vars.active.level_number = level;
         self.vars.total_score.0 = [0; 3];
         // The bonuses are BCD counts of hundreds: level * $10 and height * $10.

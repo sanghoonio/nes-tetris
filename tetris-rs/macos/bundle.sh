@@ -1,6 +1,6 @@
 #!/bin/sh
-# Build Tetris.app: the readable game with your ROM built in (see build.rs), launchable from
-# Finder, Launchpad or Spotlight. Output: target/Tetris.app (gitignored; it contains your ROM).
+# Build Tetris.app: the readable game with your ROM's data and graphics built in (see build.rs),
+# launchable from Finder, Launchpad or Spotlight. Output: target/Tetris.app (gitignored).
 #
 #     tetris-rs/macos/bundle.sh             # build target/Tetris.app
 #     tetris-rs/macos/bundle.sh --install   # ...and copy it to ~/Applications

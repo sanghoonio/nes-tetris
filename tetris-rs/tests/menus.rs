@@ -190,6 +190,34 @@ fn losing_focus_pauses() {
 }
 
 #[test]
+fn level_counter_shows_the_true_level() {
+    let mut app = playing(Config::default());
+    // Set player 1's level and flag the counter for redrawing.
+    let mut show = |level: u8| {
+        app.0.next_frame_with(0, vec![(0x64, level), (0xA3, 0x02)]);
+        app.idle(2)
+    };
+    // The three cells under "LEVEL" ($22B9..$22BB).
+    let cells = |out: &FrameOut| out.vram[0x2B9..0x2BC].to_vec();
+    // The original shows 00 here (the bytes past `levelDisplayTable`).
+    assert_eq!(cells(&show(35)), [0xFF, 3, 5]);
+    assert_eq!(cells(&show(155)), [1, 5, 5]);
+}
+
+/// Every level plays and draws from the ROM's data alone: none reads the original's code
+/// (as its level counter does above 29, and its colours above 137); `Rom` panics if one does.
+#[test]
+fn every_level_reads_only_data() {
+    for level in 0..=255u8 {
+        let mut app = playing(Config::default());
+        app.0.next_frame_with(0, vec![(0x64, level), (0xA3, 0x02)]);
+        for _ in 0..300 {
+            app.frame(&["ArrowDown"], &[]);
+        }
+    }
+}
+
+#[test]
 fn game_keys_in_play() {
     let mut app = playing(Config::default());
     let x = Vars::from_ram(&app.idle(1).ram).player1.tetrimino_x;

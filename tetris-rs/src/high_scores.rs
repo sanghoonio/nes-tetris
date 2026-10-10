@@ -45,9 +45,8 @@ impl Game {
                 self.two_digs_to_ppu(bcd);
             }
             self.ppu_data(TILE_BLANK);
-            let level = self.vars.high_score_levels[entry as usize];
-            let bcd = self.rom.table(layout::BYTE_TO_BCD_TABLE, level as usize);
-            self.two_digs_to_ppu(bcd);
+            // Levels 100+ run into the blank cell after (before the table's border).
+            self.draw_level(self.vars.high_score_levels[entry as usize]);
 
             entry += 1;
             if entry == TABLE_A_END || entry == TABLE_B_END {

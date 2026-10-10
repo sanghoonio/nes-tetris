@@ -78,8 +78,10 @@ fn diff(routine: &Routine, game: &Game, ret: Ret, after: &Machine, apu: &[(u16, 
     }
 
     let (p, q) = (&game.ppu, &after.ppu);
-    if p.vram != q.vram {
-        let a = (0..p.vram.len()).find(|&i| p.vram[i] != q.vram[i]).unwrap();
+    // Above level 29 the level counter ($22B9..$22BB) shows the true level, where the original
+    // shows whatever lies past `levelDisplayTable` (the app's fix, on in every run).
+    let true_level = |i: usize| (0x2B9..0x2BC).contains(&i) && Vars::from_ram(theirs).player1.level_number >= 30;
+    if let Some(a) = (0..p.vram.len()).find(|&i| p.vram[i] != q.vram[i] && !true_level(i)) {
         out.push(format!("PPU nametable byte {a:03X}: ours {:02X} original {:02X}", p.vram[a], q.vram[a]));
     }
     if p.palette != q.palette {

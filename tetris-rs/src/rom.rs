@@ -1,17 +1,19 @@
 //! The user's ROM: checked to be NES Tetris (USA), and read for data tables and graphics.
 //!
-//! Nothing from the ROM is in the source; the `tetris` binary embeds the ROM it was built with
-//! (`build.rs`). Tables are read at the addresses in `layout.rs`.
+//! Nothing from the ROM is in the source. Only its data and graphics are kept, not the
+//! original's code (`rom_extract`); the `tetris` binary embeds those, extracted from the ROM it
+//! was built with (`build.rs`). Tables are read at the addresses in `layout.rs`.
 
 use crate::layout;
+use crate::rom_extract::{expand, extract, extracted_len, CHR_SIZE, PRG_SIZE};
 
 /// SHA-1 of PRG + CHR (the file minus its 16-byte header) of Tetris (USA).
 const BODY_SHA1: &str = "fd9079cb5e8479eb06d93c2ae5175bfce871746a";
-const PRG_SIZE: usize = 0x8000;
-const CHR_SIZE: usize = 0x4000;
 
 pub struct Rom {
+    /// Zero where not kept.
     prg: Vec<u8>,
+    kept: Vec<bool>,
     pub chr: Vec<u8>,
 }
 
@@ -45,17 +47,30 @@ impl Rom {
         if hash != BODY_SHA1 {
             return Err(RomError::WrongRom(hash));
         }
-        Ok(Self { prg: body[..PRG_SIZE].to_vec(), chr: body[PRG_SIZE..].to_vec() })
+        Self::from_extracted(&extract(body))
+    }
+
+    /// From the bytes `rom_extract::extract` kept (what the `tetris` binary embeds).
+    pub fn from_extracted(extracted: &[u8]) -> Result<Self, RomError> {
+        if extracted.len() != extracted_len() {
+            return Err(RomError::WrongSize(extracted.len()));
+        }
+        let (prg, kept, chr) = expand(extracted);
+        Ok(Self { prg, kept, chr })
     }
 
     /// The byte at CPU address `addr` ($8000-$FFFF).
     pub fn byte(&self, addr: u16) -> u8 {
-        self.prg[addr as usize - 0x8000]
+        let at = addr as usize - 0x8000;
+        debug_assert!(self.kept[at], "ROM byte {addr:04X} isn't kept (tetris-rs/gen/rom_data.py)");
+        self.prg[at]
     }
 
     /// `len` bytes starting at CPU address `addr`.
     pub fn bytes(&self, addr: u16, len: usize) -> &[u8] {
-        &self.prg[addr as usize - 0x8000..][..len]
+        let at = addr as usize - 0x8000;
+        debug_assert!(self.kept[at..at + len].iter().all(|&k| k), "ROM bytes {addr:04X}+{len} aren't all kept");
+        &self.prg[at..][..len]
     }
 
     /// The little-endian word at `addr`.
