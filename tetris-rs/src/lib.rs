@@ -12,7 +12,10 @@ pub mod shadow;
 pub mod vars;
 
 mod controls;
+mod ending;
+mod high_scores;
 mod input;
+mod menus;
 mod play;
 mod player;
 mod render;
