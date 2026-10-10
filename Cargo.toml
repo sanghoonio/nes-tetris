@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = ["recomp"]
+
+# The reference emulator is slow unoptimized; our crate builds fast at -O1 despite the 1 MB
+# generated file (full -O3 with inlining takes ~9 minutes).
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
