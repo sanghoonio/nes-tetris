@@ -14,7 +14,7 @@ Select, Escape = quit.
 | Crate | What |
 |---|---|
 | `recomp/` | Static recompile: `gen/gen.py` translates the ROM's 6502 code into `recomp/generated/tetris.rs` (gitignored, generated from your ROM), run on a small NES model (CPU ops, MMC1, joypads, PPU timing). |
-| `tetris-rs/` | The game rewritten as readable Rust, routine by routine, keeping the original's variables (`vars.rs`) and hardware (`hw.rs`) so it can be checked against the recompile. |
+| `tetris-rs/` | The game rewritten as readable Rust, routine by routine, keeping the original's variables (`vars.rs`) and hardware (`hw.rs`) so it can be checked against the recompile. The waits for vblank are `async`, so the game runs a frame per poll with no threads, and the library builds for `wasm32-unknown-unknown`. |
 | `ppu/`, `apu/` | NES video and sound models shared by both ports. |
 | `frontend/` | Window, keyboard and audio, shared by both binaries. |
 | `disasm/` | (gitignored) the community disassembly the work is based on. |

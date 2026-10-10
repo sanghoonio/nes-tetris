@@ -5,6 +5,9 @@
 //! the static recompile on real game states. Data tables and graphics are read from the user's
 //! ROM (`rom`); nothing from it is embedded.
 
+// A wait that isn't awaited would silently skip its frame.
+#![deny(unused_must_use)]
+
 pub mod frame;
 pub mod hw;
 pub mod layout;
@@ -58,5 +61,5 @@ pub struct Game {
     pub joypads: Joypads,
     pub apu: Box<dyn ApuSink>,
     /// The frame exchange with the frontend, when running under `frame::Runner`.
-    pub(crate) io: Option<frame::FrameIo>,
+    pub(crate) io: Option<std::rc::Rc<frame::FrameIo>>,
 }

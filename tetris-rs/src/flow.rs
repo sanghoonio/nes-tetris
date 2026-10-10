@@ -48,7 +48,7 @@ const INIT_MAGIC: [u8; 5] = [0x12, 0x34, 0x56, 0x78, 0x9A];
 impl Game {
     /// `reset`: power-on. Silence the PPU, wait for it to warm up (two vblanks, which this
     /// model doesn't time), set up the mapper and run the game.
-    pub fn reset(&mut self) -> ! {
+    pub async fn reset(&mut self) -> ! {
         self.ppu_ctrl(0);
         self.ppu_mask(0);
         self.ppu_status();
@@ -58,7 +58,7 @@ impl Game {
         self.change_chr_bank0(CHR_TITLE_MENU);
         self.change_chr_bank1(CHR_TITLE_MENU);
         self.change_prg_bank(PRG_32K_BANK);
-        self.init_ram()
+        self.init_ram().await
     }
 
     /// `inc initRam` / `inc reset`: an increment of a ROM byte, whose write (bit 7 set) resets
@@ -70,7 +70,7 @@ impl Game {
 
     /// `initRam` / `initRamContinued`: clear RAM below the high score table, initialise the
     /// table on a cold boot, set up video and sound, then run the main loop.
-    fn init_ram(&mut self) -> ! {
+    async fn init_ram(&mut self) -> ! {
         self.vars.with_ram(|ram| ram[..0x700].fill(0));
         // The loop's pointer ends at page $FF (tmp2) with tmp1 = 0.
         self.vars.tmp2 = 0xFF;
@@ -95,7 +95,7 @@ impl Game {
         self.ppu_mask(0x06);
         self.init_audio();
         self.update_audio2();
-        self.update_audio_wait_for_nmi_and_disable_ppu_rendering();
+        self.update_audio_wait_for_nmi_and_disable_ppu_rendering().await;
         self.disable_nmi();
         for page in [0x20, 0x24, 0x28, 0x2C] {
             // LAA82: fill a nametable with blank tiles, attributes 0.
@@ -103,24 +103,24 @@ impl Game {
         }
         self.memset_page(TILE_EMPTY, 0x04, 0x05);
         self.wait_for_vblank_and_enable_nmi();
-        self.update_audio_wait_for_nmi_and_reset_oam_staging();
-        self.update_audio_wait_for_nmi_and_enable_ppu_rendering();
-        self.update_audio_wait_for_nmi_and_reset_oam_staging();
+        self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
+        self.update_audio_wait_for_nmi_and_enable_ppu_rendering().await;
+        self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
         self.vars.unused_0e = 0x0E;
         self.vars.game_mode_state = 0;
         self.vars.game_mode = MODE_LEGAL;
         self.vars.number_of_players = 1;
         self.vars.frame_counter.0 &= 0x00FF;
-        self.main_loop()
+        self.main_loop().await
     }
 
     /// The main loop: run the current mode; wait for vblank when it says the frame is done;
     /// when the demo's recorded input runs out, go back to the title screen.
-    fn main_loop(&mut self) -> ! {
+    async fn main_loop(&mut self) -> ! {
         loop {
-            let a = self.branch_on_game_mode();
+            let a = self.branch_on_game_mode().await;
             if a == self.vars.game_mode_state {
-                self.update_audio_wait_for_nmi_and_reset_oam_staging();
+                self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
             }
             let demo_page = (layout::DEMO_TETRIMINO_TYPE_TABLE >> 8) as u16;
             if self.vars.game_mode == MODE_DEMO && self.vars.demo_buttons_addr.0 >> 8 == demo_page {
@@ -143,24 +143,24 @@ impl Game {
     }
 
     /// `branchOnGameMode`. Returns A.
-    fn branch_on_game_mode(&mut self) -> u8 {
+    async fn branch_on_game_mode(&mut self) -> u8 {
         // `lda gameMode / jsr switch_s_plus_2a`, then the table.
         self.switch_target(layout::BRANCH_ON_GAME_MODE + 5, self.vars.game_mode);
         match self.vars.game_mode {
-            0 => self.game_mode_legal_screen(),
-            1 => self.game_mode_title_screen(),
-            2 => self.game_mode_game_type_menu(),
-            3 => self.game_mode_level_menu(),
-            4 | 5 => self.game_mode_play_and_ending_high_score(),
-            6 => self.game_mode_start_demo(),
+            0 => self.game_mode_legal_screen().await,
+            1 => self.game_mode_title_screen().await,
+            2 => self.game_mode_game_type_menu().await,
+            3 => self.game_mode_level_menu().await,
+            4 | 5 => self.game_mode_play_and_ending_high_score().await,
+            6 => self.game_mode_start_demo().await,
             mode => panic!("game mode {mode}"),
         }
     }
 
     /// Turn rendering off, then (NMI off) switch CHR banks and upload a screen (uploads named
     /// by call site; see `bulk_copy_to_ppu`).
-    fn load_screen(&mut self, chr: u8, palette: u16, nametable: u16) {
-        self.update_audio_wait_for_nmi_and_disable_ppu_rendering();
+    async fn load_screen(&mut self, chr: u8, palette: u16, nametable: u16) {
+        self.update_audio_wait_for_nmi_and_disable_ppu_rendering().await;
         self.disable_nmi();
         self.change_chr_bank0(chr);
         self.change_chr_bank1(chr);
@@ -169,22 +169,22 @@ impl Game {
     }
 
     /// Turn NMI and rendering back on over three frames, as every screen setup ends.
-    fn show_screen(&mut self) {
+    async fn show_screen(&mut self) {
         self.wait_for_vblank_and_enable_nmi();
-        self.update_audio_wait_for_nmi_and_reset_oam_staging();
-        self.update_audio_wait_for_nmi_and_enable_ppu_rendering();
-        self.update_audio_wait_for_nmi_and_reset_oam_staging();
+        self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
+        self.update_audio_wait_for_nmi_and_enable_ppu_rendering().await;
+        self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
     }
 
     /// `gameMode_legalScreen`: the legal notice, for 255 frames or until Start (which can only
     /// cut it short after the first 255 frames). Returns A.
-    fn game_mode_legal_screen(&mut self) -> u8 {
+    async fn game_mode_legal_screen(&mut self) -> u8 {
         self.update_audio2();
         self.vars.render_mode = RENDER_LEGAL_AND_TITLE;
-        self.load_screen(CHR_TITLE_MENU, layout::GAME_MODE_LEGAL_SCREEN_COPY_LEGAL_SCREEN_PALETTE, layout::GAME_MODE_LEGAL_SCREEN_COPY_LEGAL_SCREEN_NAMETABLE);
-        self.show_screen();
+        self.load_screen(CHR_TITLE_MENU, layout::GAME_MODE_LEGAL_SCREEN_COPY_LEGAL_SCREEN_PALETTE, layout::GAME_MODE_LEGAL_SCREEN_COPY_LEGAL_SCREEN_NAMETABLE).await;
+        self.show_screen().await;
         self.memset_page(0x00, 0x02, 0x02);
-        self.sleep_for_a_vblanks(LEGAL_SLEEP_TIME);
+        self.sleep_for_a_vblanks(LEGAL_SLEEP_TIME).await;
         self.vars.general_counter = LEGAL_SLEEP_TIME;
         let mut a = 0xFF;
         loop {
@@ -192,7 +192,7 @@ impl Game {
                 a = buttons::START;
                 break;
             }
-            self.update_audio_wait_for_nmi_and_reset_oam_staging();
+            self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
             self.vars.general_counter = self.vars.general_counter.wrapping_sub(1);
             if self.vars.general_counter == 0 {
                 break;
@@ -204,17 +204,17 @@ impl Game {
 
     /// `gameMode_titleScreen`: wait for Start (to the menus) or about 21 seconds (to the
     /// demo). Returns A.
-    fn game_mode_title_screen(&mut self) -> u8 {
+    async fn game_mode_title_screen(&mut self) -> u8 {
         self.update_audio2();
         self.vars.render_mode = RENDER_LEGAL_AND_TITLE;
         self.vars.demo_recording = 0;
         self.vars.display_next_piece = 0;
-        self.load_screen(CHR_TITLE_MENU, layout::GAME_MODE_TITLE_SCREEN_COPY_MENU_PALETTE, layout::GAME_MODE_TITLE_SCREEN_COPY_TITLE_SCREEN_NAMETABLE);
-        self.show_screen();
+        self.load_screen(CHR_TITLE_MENU, layout::GAME_MODE_TITLE_SCREEN_COPY_MENU_PALETTE, layout::GAME_MODE_TITLE_SCREEN_COPY_TITLE_SCREEN_NAMETABLE).await;
+        self.show_screen().await;
         self.memset_page(0x00, 0x02, 0x02);
         self.vars.frame_counter.0 &= 0x00FF;
         loop {
-            self.update_audio_wait_for_nmi_and_reset_oam_staging();
+            self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
             if self.vars.newly_pressed_buttons_player1 == buttons::START {
                 self.vars.sfx_init[1] = SFX_MENU_SCREEN;
                 self.vars.game_mode = self.vars.game_mode.wrapping_add(1);
@@ -230,17 +230,17 @@ impl Game {
 
     /// `gameMode_gameTypeMenu`: choose A/B type (left/right) and music (up/down); Start goes
     /// on, B goes back to the title. Returns A.
-    fn game_mode_game_type_menu(&mut self) -> u8 {
+    async fn game_mode_game_type_menu(&mut self) -> u8 {
         self.reset_mmc1(layout::INIT_RAM);
         self.set_mmc1_control_value(MMC1_4KCHR_32KPRG_H_MIRROR);
         self.vars.render_mode = RENDER_MENUS;
-        self.update_audio_wait_for_nmi_and_disable_ppu_rendering();
+        self.update_audio_wait_for_nmi_and_disable_ppu_rendering().await;
         self.disable_nmi();
         self.bulk_copy_to_ppu(layout::GAME_MODE_GAME_TYPE_MENU_COPY_MENU_PALETTE);
         self.bulk_copy_to_ppu(layout::GAME_MODE_GAME_TYPE_MENU_COPY_GAME_TYPE_MENU_NAMETABLE);
         self.change_chr_bank0(CHR_TITLE_MENU);
         self.change_chr_bank1(CHR_TITLE_MENU);
-        self.show_screen();
+        self.show_screen().await;
         self.play_selected_music();
         loop {
             self.memset_page(0xFF, 0x02, 0x02);
@@ -282,7 +282,7 @@ impl Game {
                 return 0;
             }
             self.stage_game_type_menu_cursors();
-            self.update_audio_wait_for_nmi_and_reset_oam_staging();
+            self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
         }
     }
 
@@ -312,12 +312,12 @@ impl Game {
 
     /// `gameMode_levelMenu`: choose the start level (and height, for B-type). Start begins the
     /// game, A+Start adds 10 to the level, B goes back. Returns A.
-    fn game_mode_level_menu(&mut self) -> u8 {
+    async fn game_mode_level_menu(&mut self) -> u8 {
         self.reset_mmc1(layout::INIT_RAM);
         self.set_mmc1_control_value(MMC1_4KCHR_32KPRG_H_MIRROR);
         self.update_audio2();
         self.vars.render_mode = RENDER_MENUS;
-        self.update_audio_wait_for_nmi_and_disable_ppu_rendering();
+        self.update_audio_wait_for_nmi_and_disable_ppu_rendering().await;
         self.disable_nmi();
         self.change_chr_bank0(CHR_TITLE_MENU);
         self.change_chr_bank1(CHR_TITLE_MENU);
@@ -329,10 +329,10 @@ impl Game {
         }
         self.show_high_scores();
         self.wait_for_vblank_and_enable_nmi();
-        self.update_audio_wait_for_nmi_and_reset_oam_staging();
+        self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
         self.ppu_scroll(0, 0);
-        self.update_audio_wait_for_nmi_and_enable_ppu_rendering();
-        self.update_audio_wait_for_nmi_and_reset_oam_staging();
+        self.update_audio_wait_for_nmi_and_enable_ppu_rendering().await;
+        self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
         // The menu keeps "selecting level or height" in originalY between frames.
         self.vars.original_y = 0;
         self.vars.drop_speed = 0;
@@ -368,7 +368,7 @@ impl Game {
             // Keep drawing random garbage holes for both players while the menu is up.
             self.vars.player1.garbage_hole = self.random_column();
             self.vars.player2.garbage_hole = self.random_column();
-            self.update_audio_wait_for_nmi_and_reset_oam_staging();
+            self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
         }
     }
 
@@ -385,22 +385,22 @@ impl Game {
     }
 
     /// `gameMode_startDemo`: start an A-type level 0 game in demo mode.
-    fn game_mode_start_demo(&mut self) -> u8 {
+    async fn game_mode_start_demo(&mut self) -> u8 {
         self.vars.game_type = 0;
         self.vars.player1.start_level = 0;
         self.vars.game_mode_state = 0;
         self.vars.player1.play_state = 0;
         self.vars.game_mode = MODE_DEMO;
-        self.game_mode_play_and_ending_high_score()
+        self.game_mode_play_and_ending_high_score().await
     }
 
     /// `gameMode_playAndEndingHighScore`: the play mode's states, one after another; state 8
     /// ends the frame. Returns A.
-    fn game_mode_play_and_ending_high_score(&mut self) -> u8 {
+    async fn game_mode_play_and_ending_high_score(&mut self) -> u8 {
         self.switch_target(layout::GAME_MODE_PLAY_AND_ENDING_HIGH_SCORE + 5, self.vars.game_mode_state);
         match self.vars.game_mode_state {
-            0 => self.game_mode_state_init_game_background(),
-            1 => self.game_mode_state_init_game_state(),
+            0 => self.game_mode_state_init_game_background().await,
+            1 => self.game_mode_state_init_game_state().await,
             2 => {
                 self.game_mode_state_update_counters_and_non_player_state();
                 // A is the Select check (0) or the toggled flag.
@@ -410,11 +410,11 @@ impl Game {
                     self.vars.display_next_piece
                 }
             }
-            3 => self.game_mode_state_handle_game_over(),
-            4 => self.game_mode_state_update_player1(),
-            5 => self.game_mode_state_update_player2(),
+            3 => self.game_mode_state_handle_game_over().await,
+            4 => self.game_mode_state_update_player1().await,
+            5 => self.game_mode_state_update_player2().await,
             6 => self.game_mode_state_check_for_reset_key_combo(),
-            7 => self.game_mode_state_start_button_handling(),
+            7 => self.game_mode_state_start_button_handling().await,
             8 => {
                 // gameModeState_vblankThenRunState2: back to state 2, and A = 2 ends the frame.
                 self.vars.game_mode_state = 2;
@@ -425,8 +425,8 @@ impl Game {
     }
 
     /// `gameModeState_initGameBackground`: draw the game screen. Returns A.
-    fn game_mode_state_init_game_background(&mut self) -> u8 {
-        self.load_screen(CHR_GAME, layout::GAME_MODE_STATE_INIT_GAME_BACKGROUND_COPY_GAME_PALETTE, layout::GAME_MODE_STATE_INIT_GAME_BACKGROUND_COPY_GAME_NAMETABLE);
+    async fn game_mode_state_init_game_background(&mut self) -> u8 {
+        self.load_screen(CHR_GAME, layout::GAME_MODE_STATE_INIT_GAME_BACKGROUND_COPY_GAME_PALETTE, layout::GAME_MODE_STATE_INIT_GAME_BACKGROUND_COPY_GAME_NAMETABLE).await;
         // "A-TYPE"/"B-TYPE" and the top score for the type.
         self.ppu_addr(0x2083);
         let b_type = self.vars.game_type != 0;
@@ -441,7 +441,7 @@ impl Game {
             self.ppu_addr(0x233B);
             self.ppu_data(self.vars.active.start_height & 0x0F);
         }
-        self.show_screen();
+        self.show_screen().await;
         self.vars.player1.play_state = 1;
         self.vars.player2.play_state = 1;
         self.vars.player1.level_number = self.vars.player1.start_level;
@@ -473,7 +473,7 @@ impl Game {
 
     /// `gameModeState_initGameState`: a new game's variables, first pieces and B-type garbage.
     /// Returns A.
-    fn game_mode_state_init_game_state(&mut self) -> u8 {
+    async fn game_mode_state_init_game_state(&mut self) -> u8 {
         self.memset_page(TILE_EMPTY, 0x04, 0x04);
         self.vars.stats_by_type = [0; 14];
         for p in [&mut self.vars.player1, &mut self.vars.player2] {
@@ -510,8 +510,8 @@ impl Game {
             self.vars.player2.lines.0[0] = 0x25;
         }
         self.vars.out_of_date_render_flags = RENDER_ALL;
-        self.update_audio_wait_for_nmi_and_reset_oam_staging();
-        self.init_playfield_if_type_b();
+        self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
+        self.init_playfield_if_type_b().await;
         self.play_selected_music();
         self.vars.game_mode_state = self.vars.game_mode_state.wrapping_add(1);
         // setMusicTrack leaves A = gameMode, or $FF in the demo.
@@ -520,7 +520,7 @@ impl Game {
 
     /// `initPlayfieldIfTypeB`: fill the bottom 12 rows with random garbage, one guaranteed hole
     /// per row (a row per frame), then clear rows above the chosen height.
-    fn init_playfield_if_type_b(&mut self) {
+    async fn init_playfield_if_type_b(&mut self) {
         if self.vars.game_type == 0 {
             return;
         }
@@ -548,7 +548,7 @@ impl Game {
             let hole = self.random_column();
             self.vars.general_counter5 = hole;
             self.vars.playfield[row_start.wrapping_add(hole) as usize] = TILE_EMPTY;
-            self.update_audio_wait_for_nmi_and_reset_oam_staging();
+            self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
             self.vars.general_counter -= 1;
         }
         // Copy to player 2's field (indices 200 down to 1, as the original's loop).
@@ -567,7 +567,7 @@ impl Game {
 
     /// `gameModeState_handleGameOver`: when a game ends, record a high score (with name entry)
     /// and go back to the level menu. Returns A.
-    fn game_mode_state_handle_game_over(&mut self) -> u8 {
+    async fn game_mode_state_handle_game_over(&mut self) -> u8 {
         self.vars.general_counter2 = 5;
         if self.vars.player1.play_state != 0 {
             if self.vars.number_of_players == 1 {
@@ -585,21 +585,21 @@ impl Game {
             return 9;
         }
         self.vars.render_mode = RENDER_PLAY;
-        self.handle_high_score_if_necessary();
+        self.handle_high_score_if_necessary().await;
         self.vars.player1.play_state = 1;
         self.vars.player2.play_state = 1;
         self.memset_page(TILE_EMPTY, 0x04, 0x05);
         self.vars.player1.vram_row = 0;
         self.vars.player2.vram_row = 0;
-        self.update_audio_wait_for_nmi_and_reset_oam_staging();
+        self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
         self.vars.game_mode = MODE_LEVEL_MENU;
         MODE_LEVEL_MENU
     }
 
     /// `gameModeState_updatePlayer1`: a frame of player 1's game. Returns A.
-    fn game_mode_state_update_player1(&mut self) -> u8 {
+    async fn game_mode_state_update_player1(&mut self) -> u8 {
         self.make_player1_active();
-        self.branch_on_play_state();
+        self.branch_on_play_state().await;
         self.stage_sprite_for_current_piece();
         self.save_player1_state();
         self.stage_sprite_for_next_piece();
@@ -609,11 +609,11 @@ impl Game {
     }
 
     /// `gameModeState_updatePlayer2` (two-player builds only). Returns A.
-    fn game_mode_state_update_player2(&mut self) -> u8 {
+    async fn game_mode_state_update_player2(&mut self) -> u8 {
         let mut a = self.vars.number_of_players;
         if self.vars.number_of_players == 2 {
             self.make_player2_active();
-            self.branch_on_play_state();
+            self.branch_on_play_state().await;
             self.stage_sprite_for_current_piece();
             a = self.vars.pending_garbage_inactive_player;
             self.save_player2_state();
@@ -623,7 +623,7 @@ impl Game {
     }
 
     /// `branchOnPlayStatePlayer1/2`: run the active piece's play state.
-    fn branch_on_play_state(&mut self) {
+    async fn branch_on_play_state(&mut self) {
         let table = if self.vars.active_player == 2 {
             layout::BRANCH_ON_PLAY_STATE_PLAYER2
         } else {
@@ -637,10 +637,10 @@ impl Game {
             3 => self.check_for_completed_rows(),
             4 | 9 => self.play_state_noop(),
             5 => self.update_lines_and_statistics(),
-            6 => self.b_type_goal_check(),
+            6 => self.b_type_goal_check().await,
             7 => self.receive_garbage(),
             8 => self.play_state_spawn_next_tetrimino(),
-            10 => self.update_game_over_curtain(),
+            10 => self.update_game_over_curtain().await,
             11 => self.play_state_increment_play_state(),
             state => panic!("play state {state}"),
         }
@@ -662,7 +662,7 @@ impl Game {
 
     /// `gameModeState_startButtonHandling`: Start leaves the demo, or pauses the game until
     /// Start again (not during the game-over curtain). Returns A.
-    fn game_mode_state_start_button_handling(&mut self) -> u8 {
+    async fn game_mode_state_start_button_handling(&mut self) -> u8 {
         let pressed = self.vars.newly_pressed_buttons_player1;
         let a = if self.vars.game_mode == MODE_DEMO && pressed == buttons::START {
             self.vars.game_mode = MODE_TITLE;
@@ -674,7 +674,7 @@ impl Game {
         } else if self.vars.player1.play_state == 0x0A {
             0x0A
         } else {
-            self.pause();
+            self.pause().await;
             RENDER_PLAY
         };
         self.vars.game_mode_state = self.vars.game_mode_state.wrapping_add(1);
@@ -682,10 +682,10 @@ impl Game {
     }
 
     /// The pause screen: playfield hidden, "PAUSE" shown, the pause jingle, until Start.
-    fn pause(&mut self) {
+    async fn pause(&mut self) {
         self.vars.music_staging_noise_hi = PAUSED;
         self.vars.render_mode = RENDER_LEGAL_AND_TITLE;
-        self.update_audio_and_wait_for_nmi();
+        self.update_audio_and_wait_for_nmi().await;
         // Background off, sprites on (not recorded in currentPpuMask).
         self.ppu_mask(0x16);
         self.memset_page(0xFF, 0x02, 0x02);
@@ -697,7 +697,7 @@ impl Game {
             if self.vars.newly_pressed_buttons_player1 == buttons::START {
                 break;
             }
-            self.update_audio_wait_for_nmi_and_reset_oam_staging();
+            self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
         }
         self.ppu_mask(0x1E);
         self.vars.music_staging_noise_hi = 0;
@@ -707,7 +707,7 @@ impl Game {
 
     /// `playState_updateGameOverCurtain`: lower the curtain a row every 4 frames; then show the
     /// rocket ending for 30000+ points, or wait for Start.
-    fn update_game_over_curtain(&mut self) {
+    async fn update_game_over_curtain(&mut self) {
         if self.vars.active.curtain_row != 0x14 {
             if self.vars.frame_counter.0 & 0x03 != 0 {
                 return;
@@ -728,8 +728,8 @@ impl Game {
         }
         if self.vars.number_of_players != 2 {
             if self.vars.player1.score.0[2] >= 0x03 {
-                self.sleep_for_a_vblanks(ENDING_SLEEP_TIME_1);
-                self.ending_animation();
+                self.sleep_for_a_vblanks(ENDING_SLEEP_TIME_1).await;
+                self.ending_animation().await;
             } else if self.vars.newly_pressed_buttons_player1 != buttons::START {
                 return;
             }
@@ -740,7 +740,7 @@ impl Game {
 
     /// `playState_bTypeGoalCheck`: when a B-type game's lines reach 0, show "SUCCESS" and the
     /// ending.
-    fn b_type_goal_check(&mut self) {
+    async fn b_type_goal_check(&mut self) {
         if self.vars.game_type == 0 || self.vars.active.lines.0[0] != 0 {
             self.vars.active.play_state = self.vars.active.play_state.wrapping_add(1);
             return;
@@ -756,17 +756,17 @@ impl Game {
             i += 1;
         }
         self.vars.player1.vram_row = 0;
-        self.sleep_for_14_vblanks();
+        self.sleep_for_14_vblanks().await;
         self.vars.render_mode = RENDER_LEGAL_AND_TITLE;
-        self.sleep_for_a_vblanks(0x80);
-        self.ending_animation();
+        self.sleep_for_a_vblanks(0x80).await;
+        self.ending_animation().await;
         self.vars.active.play_state = 0;
         self.vars.game_mode_state = self.vars.game_mode_state.wrapping_add(1);
     }
 
     /// `handleHighScoreIfNecessary`: if the score makes the type's top 3, shift the lower scores
     /// down, record it with a blank name, and run name entry.
-    fn handle_high_score_if_necessary(&mut self) {
+    async fn handle_high_score_if_necessary(&mut self) {
         let mut pos = if self.vars.game_type != 0 { 4 } else { 0 };
         self.vars.high_score_entry_raw_pos = pos;
         let score = self.vars.player1.score.0;
@@ -801,7 +801,7 @@ impl Game {
             self.set_high_score_byte(at + i as u8, digits);
         }
         self.vars.high_score_levels[pos as usize] = self.vars.player1.level_number;
-        self.high_score_entry_screen();
+        self.high_score_entry_screen().await;
     }
 
     /// A byte of the high score table's scores (A-type's 12 then B-type's 12).

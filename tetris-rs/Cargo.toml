@@ -8,8 +8,11 @@ description = "NES Tetris reimplemented in readable Rust, verified against the r
 [dependencies]
 apu = { path = "../apu" }
 ppu = { path = "../ppu" }
-frontend = { path = "../frontend" }
 sha1_smol = "1"
+
+# The desktop window, for the `tetris` binary.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+frontend = { path = "../frontend" }
 
 [dev-dependencies]
 recomp = { path = "../recomp" }

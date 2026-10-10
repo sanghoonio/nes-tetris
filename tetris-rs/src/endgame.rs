@@ -51,12 +51,12 @@ const ROCKET_FAST_Y: u8 = 0x80;
 impl Game {
     /// `highScoreEntryScreen`: the name-entry screen. Left/right (or A/B) move the cursor along
     /// the six letters, held Up/Down changes the letter under it every 8 frames, Start finishes.
-    pub fn high_score_entry_screen(&mut self) {
+    pub async fn high_score_entry_screen(&mut self) {
         self.reset_mmc1_serial_port();
         self.set_mmc1_control_value(MMC1_4KCHR_32KPRG_H_MIRROR);
         self.set_music_track(MUSIC_HIGH_SCORE);
         self.vars.render_mode = RENDER_CONGRATULATIONS;
-        self.update_audio_wait_for_nmi_and_disable_ppu_rendering();
+        self.update_audio_wait_for_nmi_and_disable_ppu_rendering().await;
         self.disable_nmi();
         self.change_chr_bank0(CHR_TITLE_MENU);
         self.change_chr_bank1(CHR_TITLE_MENU);
@@ -68,9 +68,9 @@ impl Game {
         self.show_high_scores();
         self.vars.render_mode = RENDER_CONGRATULATIONS;
         self.wait_for_vblank_and_enable_nmi();
-        self.update_audio_wait_for_nmi_and_reset_oam_staging();
-        self.update_audio_wait_for_nmi_and_enable_ppu_rendering();
-        self.update_audio_wait_for_nmi_and_reset_oam_staging();
+        self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
+        self.update_audio_wait_for_nmi_and_enable_ppu_rendering().await;
+        self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
 
         // The name's first byte in `highScoreNames` is row * 6 (computed as 2r + 4r).
         let raw_pos = self.vars.high_score_entry_raw_pos;
@@ -134,9 +134,9 @@ impl Game {
             let at = self.entered_letter_index();
             self.vars.high_score_entry_current_letter = self.vars.high_score_names[at];
             self.vars.out_of_date_render_flags = RENDER_HIGH_SCORE_LETTER;
-            self.update_audio_wait_for_nmi_and_reset_oam_staging();
+            self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
         }
-        self.update_audio_wait_for_nmi_and_reset_oam_staging();
+        self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
     }
 
     /// Index into `highScoreNames` of the letter under the cursor: the row's offset plus the
@@ -155,31 +155,31 @@ impl Game {
 
     /// `endingAnimation`: the ending after a game. Type A shows the rocket for the score; type B
     /// counts up the level and height bonuses first. Returns when Start is pressed.
-    pub fn ending_animation(&mut self) {
+    pub async fn ending_animation(&mut self) {
         self.vars.sprite_index_in_oam_content_lookup = 2;
         self.vars.render_mode = RENDER_ENDING_ANIMATION;
         if self.vars.game_type != 0 {
-            self.ending_animation_b();
+            self.ending_animation_b().await;
         } else {
-            self.ending_animation_a();
+            self.ending_animation_a().await;
         }
     }
 
     /// `endingAnimationA`: the rocket ending. The rocket lifts off (`ending_custom_vars[0]` is
     /// its height, 0 when it has left); then wait for Start.
-    fn ending_animation_a(&mut self) {
-        self.update_audio_wait_for_nmi_and_disable_ppu_rendering();
+    async fn ending_animation_a(&mut self) {
+        self.update_audio_wait_for_nmi_and_disable_ppu_rendering().await;
         self.disable_nmi();
         self.change_chr_bank0(CHR_TYPEA_ENDING);
         self.change_chr_bank1(CHR_TYPEA_ENDING);
         self.bulk_copy_to_ppu(layout::ENDING_ANIMATION_A_COPY_TYPE_A_ENDING_NAMETABLE);
         self.bulk_copy_to_ppu(layout::ENDING_ANIMATION_A_COPY_ENDING_PALETTE);
         self.select_ending_screen();
-        self.start_ending_screen();
-        self.render_ending_unskippable(ENDING_SLEEP_TIME_1);
+        self.start_ending_screen().await;
+        self.render_ending_unskippable(ENDING_SLEEP_TIME_1).await;
         loop {
             self.render_ending();
-            self.update_audio_wait_for_nmi_and_reset_oam_staging();
+            self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
             if self.vars.ending_custom_vars[0] != 0 {
                 continue;
             }
@@ -192,7 +192,7 @@ impl Game {
     /// `endingAnimationB`: the B-type ending: the scene for the level, then the level and height
     /// bonuses added to the score 100 at a time (the bonuses live in `general_counter4` and
     /// `general_counter5`, which the ending's render mode draws).
-    fn ending_animation_b(&mut self) {
+    async fn ending_animation_b(&mut self) {
         let display = self.rom.table(layout::LEVEL_DISPLAY_TABLE, self.vars.player1.level_number as usize);
         let level = display & 0x0F;
         self.vars.active.level_number = level;
@@ -200,7 +200,7 @@ impl Game {
         // The bonuses are BCD counts of hundreds: level * $10 and height * $10.
         self.vars.general_counter4 = level.wrapping_shl(4);
         self.vars.general_counter5 = self.vars.player1.start_height.wrapping_shl(4);
-        self.update_audio_wait_for_nmi_and_disable_ppu_rendering();
+        self.update_audio_wait_for_nmi_and_disable_ppu_rendering().await;
         self.disable_nmi();
         if level == CONCERT_LEVEL {
             self.change_chr_bank0(CHR_TYPEB_ENDING);
@@ -214,43 +214,43 @@ impl Game {
         }
         self.bulk_copy_to_ppu(layout::ENDING_ANIMATION_B_COPY_ENDING_PALETTE);
         self.ending_init_type_b_vars();
-        self.start_ending_screen();
-        self.render_ending_unskippable(ENDING_SLEEP_TIME_1);
+        self.start_ending_screen().await;
+        self.render_ending_unskippable(ENDING_SLEEP_TIME_1).await;
 
         // The score moves to the total, and the panel's score reads zero.
         self.vars.total_score.0 = self.vars.player1.score.0;
         self.vars.sfx_init[1] = SFX_MENU_SCREEN;
         self.vars.player1.score.0 = [0; 3];
-        self.render_ending_unskippable(ENDING_SLEEP_TIME_2);
+        self.render_ending_unskippable(ENDING_SLEEP_TIME_2).await;
 
         if self.vars.general_counter4 != 0 {
             loop {
                 self.vars.general_counter4 = Self::bonus_step(self.vars.general_counter4);
                 self.add_100_points();
                 self.vars.sfx_init[1] = SFX_MENU_OPTION;
-                self.render_ending_unskippable(ENDING_SLEEP_TIME_3);
+                self.render_ending_unskippable(ENDING_SLEEP_TIME_3).await;
                 if self.vars.general_counter4 == 0 {
                     break;
                 }
             }
-            self.render_ending_unskippable(ENDING_SLEEP_TIME_2);
+            self.render_ending_unskippable(ENDING_SLEEP_TIME_2).await;
         }
         if self.vars.general_counter5 != 0 {
             loop {
                 self.vars.general_counter5 = Self::bonus_step(self.vars.general_counter5);
                 self.add_100_points();
                 self.vars.sfx_init[1] = SFX_MENU_OPTION;
-                self.render_ending_unskippable(ENDING_SLEEP_TIME_3);
+                self.render_ending_unskippable(ENDING_SLEEP_TIME_3).await;
                 if self.vars.general_counter5 == 0 {
                     break;
                 }
             }
             self.vars.sfx_init[1] = SFX_MENU_SCREEN;
-            self.render_ending_unskippable(ENDING_SLEEP_TIME_2);
+            self.render_ending_unskippable(ENDING_SLEEP_TIME_2).await;
         }
         loop {
             self.render_ending();
-            self.update_audio_wait_for_nmi_and_reset_oam_staging();
+            self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
             if self.vars.newly_pressed_buttons_player1 == buttons::START {
                 break;
             }
@@ -267,22 +267,22 @@ impl Game {
 
     /// The end of an ending screen's setup: turn the display on over three frames, switch to
     /// the ending's render mode and start its music.
-    fn start_ending_screen(&mut self) {
+    async fn start_ending_screen(&mut self) {
         self.wait_for_vblank_and_enable_nmi();
-        self.update_audio_wait_for_nmi_and_reset_oam_staging();
-        self.update_audio_wait_for_nmi_and_enable_ppu_rendering();
-        self.update_audio_wait_for_nmi_and_reset_oam_staging();
+        self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
+        self.update_audio_wait_for_nmi_and_enable_ppu_rendering().await;
+        self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
         self.vars.render_mode = RENDER_ENDING_ANIMATION;
         self.set_music_track(MUSIC_ENDING);
     }
 
     /// `render_endingUnskippable`: draw the ending for `frames` frames (Start doesn't cut it
     /// short).
-    fn render_ending_unskippable(&mut self, frames: u8) {
+    async fn render_ending_unskippable(&mut self, frames: u8) {
         self.vars.sleep_counter = frames;
         loop {
             self.render_ending();
-            self.update_audio_wait_for_nmi_and_reset_oam_staging();
+            self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
             if self.vars.sleep_counter == 0 {
                 break;
             }
