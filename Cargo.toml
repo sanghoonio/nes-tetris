@@ -2,8 +2,7 @@
 resolver = "2"
 members = ["apu", "frontend", "ppu", "recomp", "tetris-rs"]
 
-# The reference emulator is slow unoptimized; our crate builds fast at -O1 despite the 1 MB
-# generated file (full -O3 with inlining takes ~9 minutes).
+# Tests run the reference emulator and thousands of frames, so even dev builds are optimised.
 [profile.dev]
 opt-level = 1
 
