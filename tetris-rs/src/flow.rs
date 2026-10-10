@@ -17,24 +17,24 @@ const MODE_LEVEL_MENU: u8 = 3;
 const MODE_DEMO: u8 = 5;
 const MODE_START_DEMO: u8 = 6;
 
-const RENDER_LEGAL_AND_TITLE: u8 = 0;
+pub(crate) const RENDER_LEGAL_AND_TITLE: u8 = 0;
 const RENDER_MENUS: u8 = 1;
 const RENDER_PLAY: u8 = 3;
 
 /// MMC1 control: 4 KB CHR banks, 32 KB PRG, horizontal mirroring.
 const MMC1_4KCHR_32KPRG_H_MIRROR: u8 = 0x10;
 const PRG_32K_BANK: u8 = 0x00;
-const CHR_TITLE_MENU: u8 = 0x00;
+pub(crate) const CHR_TITLE_MENU: u8 = 0x00;
 const CHR_GAME: u8 = 0x03;
 
 const LEGAL_SLEEP_TIME: u8 = 0xFF;
 const ENDING_SLEEP_TIME_1: u8 = 0x80;
 const INITIAL_AUTOREPEAT_Y: u8 = 0xA0;
 /// Frames between flips of a menu cursor's flicker.
-const MENU_CURSOR_MASK: u8 = 0x03;
+pub(crate) const MENU_CURSOR_MASK: u8 = 0x03;
 
-const SFX_MENU_OPTION: u8 = 0x01;
-const SFX_MENU_SCREEN: u8 = 0x02;
+pub(crate) const SFX_MENU_OPTION: u8 = 0x01;
+pub(crate) const SFX_MENU_SCREEN: u8 = 0x02;
 const TILE_EMPTY: u8 = 0xEF;
 const HIDDEN: u8 = 0x13;
 const TILE_CURTAIN: u8 = 0x4F;
@@ -162,7 +162,7 @@ impl Game {
 
     /// Turn rendering off, then (NMI off) switch CHR banks and upload a screen (uploads named
     /// by call site; see `bulk_copy_to_ppu`).
-    async fn load_screen(&mut self, chr: u8, palette: u16, nametable: u16) {
+    pub(crate) async fn load_screen(&mut self, chr: u8, palette: u16, nametable: u16) {
         self.update_audio_wait_for_nmi_and_disable_ppu_rendering().await;
         self.disable_nmi();
         self.change_chr_bank0(chr);
@@ -172,7 +172,7 @@ impl Game {
     }
 
     /// Turn NMI and rendering back on over three frames, as every screen setup ends.
-    async fn show_screen(&mut self) {
+    pub(crate) async fn show_screen(&mut self) {
         self.wait_for_vblank_and_enable_nmi();
         self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
         self.update_audio_wait_for_nmi_and_enable_ppu_rendering().await;
@@ -208,6 +208,9 @@ impl Game {
     /// `gameMode_titleScreen`: wait for Start (to the menus) or about 21 seconds (to the
     /// demo). Returns A.
     async fn game_mode_title_screen(&mut self) -> u8 {
+        if self.options.menus {
+            return self.title_menu().await;
+        }
         self.update_audio2();
         self.vars.render_mode = RENDER_LEGAL_AND_TITLE;
         self.vars.demo_recording = 0;
@@ -606,6 +609,9 @@ impl Game {
         self.stage_sprite_for_current_piece();
         self.save_player1_state();
         self.stage_sprite_for_next_piece();
+        if self.options.config.rules.ghost {
+            self.stage_ghost_piece();
+        }
         self.vars.game_mode_state = self.vars.game_mode_state.wrapping_add(1);
         // stageSpriteForNextPiece leaves the flag (preview hidden) or $FF from the sprite loader.
         if self.vars.display_next_piece != 0 { self.vars.display_next_piece } else { 0xFF }
@@ -660,6 +666,9 @@ impl Game {
             return 0;
         }
         self.vars.game_mode_state = self.vars.game_mode_state.wrapping_add(1);
+        if !self.options.config.rules.slowdown && held == self.vars.game_mode_state {
+            return 0;
+        }
         held
     }
 

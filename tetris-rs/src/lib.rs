@@ -26,6 +26,8 @@ mod play;
 mod player;
 mod render;
 mod rng;
+pub mod options;
+mod pc_menus;
 pub mod saved;
 mod sound;
 mod spawn;
@@ -39,6 +41,7 @@ pub use frame::{FrameOut, Runner};
 pub use hw::{ApuSink, Joypads, Mmc1};
 pub use rom::Rom;
 pub use saved::Saved;
+pub use options::{Config, Options};
 pub use vars::Vars;
 
 /// Joypad bits as the game sees them (first shifted out = A).
@@ -66,4 +69,7 @@ pub struct Game {
     pub(crate) io: Option<std::rc::Rc<frame::FrameIo>>,
     /// Saved state to restore at power-on (`initRam`); none for the original game.
     pub saved: Option<Saved>,
+    /// The app's additions; `Options::original()` for the game as it was.
+    pub options: Options,
+    pub(crate) ui: pc_menus::Ui,
 }

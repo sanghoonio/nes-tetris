@@ -3,9 +3,6 @@
 use crate::shadow::{Ret, Routine};
 use crate::{buttons, layout, Game};
 
-/// DAS: frames of holding left/right before the first repeat, and between repeats.
-const DAS_RESET: u8 = 0x10;
-const DAS_DELAY: u8 = 0x0A;
 /// Sound effects requested in slot 1.
 const SFX_SHIFT: u8 = 0x03;
 const SFX_ROTATE: u8 = 0x05;
@@ -17,7 +14,33 @@ impl Game {
     pub fn player_controls_active_tetrimino(&mut self) {
         self.shift_tetrimino();
         self.rotate_tetrimino();
-        self.drop_tetrimino();
+        if self.options.config.rules.hard_drop && self.vars.newly_pressed_buttons & buttons::UP != 0 {
+            self.hard_drop();
+        } else {
+            self.drop_tetrimino();
+        }
+    }
+
+    /// Hard drop (a rule change; Up does nothing in the original): drop row by row until the
+    /// piece locks, scoring each row as a soft drop does.
+    fn hard_drop(&mut self) {
+        self.vars.active.autorepeat_y = 0;
+        while self.vars.active.play_state != PLAY_STATE_LOCK {
+            let p = &mut self.vars.active;
+            p.hold_down_points = p.hold_down_points.wrapping_add(1);
+            self.drop_one_row();
+        }
+    }
+
+    /// Where the piece would land, as a row.
+    pub(crate) fn landing_row(&mut self) -> u8 {
+        let start = self.vars.active.tetrimino_y;
+        while self.is_position_valid() {
+            self.vars.active.tetrimino_y = self.vars.active.tetrimino_y.wrapping_add(1);
+        }
+        let landing = self.vars.active.tetrimino_y.wrapping_sub(1);
+        self.vars.active.tetrimino_y = start;
+        landing
     }
 
     /// `isPositionValid`: whether the active piece fits at its position. Each of its four cells
@@ -47,7 +70,12 @@ impl Game {
     /// `shift_tetrimino`: move left/right. A fresh press moves at once; holding repeats after
     /// DAS_RESET frames, then every DAS_RESET - DAS_DELAY frames. Down blocks shifting. A blocked
     /// move charges DAS fully so the next frame retries.
+    ///
+    /// The rules' DAS settings replace the two numbers (the original's are 16 and 16 - 6).
     pub fn shift_tetrimino(&mut self) {
+        let rules = self.options.config.rules;
+        let das_reset = rules.das_delay;
+        let das_delay = rules.das_delay.saturating_sub(rules.das_repeat);
         let held = self.vars.held_buttons;
         let pressed = self.vars.newly_pressed_buttons;
         let original_x = self.vars.active.tetrimino_x;
@@ -64,10 +92,10 @@ impl Game {
             let p = &mut self.vars.active;
             p.autorepeat_x = p.autorepeat_x.wrapping_add(1);
             // Signed compare, as the original's `cmp / bmi`.
-            if (p.autorepeat_x.wrapping_sub(DAS_RESET) as i8) < 0 {
+            if (p.autorepeat_x.wrapping_sub(das_reset) as i8) < 0 {
                 return;
             }
-            p.autorepeat_x = DAS_DELAY;
+            p.autorepeat_x = das_delay;
         }
         let step: i8 = if held & buttons::RIGHT != 0 {
             1
@@ -82,7 +110,7 @@ impl Game {
             self.vars.sfx_init[1] = SFX_SHIFT;
         } else {
             self.vars.active.tetrimino_x = original_x;
-            self.vars.active.autorepeat_x = DAS_RESET;
+            self.vars.active.autorepeat_x = das_reset;
         }
     }
 

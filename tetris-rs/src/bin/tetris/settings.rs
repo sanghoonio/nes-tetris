@@ -1,11 +1,15 @@
-//! `settings.toml`: keys, volume, the last game's menu choices and the high score table, kept in
-//! `~/Library/Application Support/Tetris/` so they outlast the app (and rebuilds of it).
+//! `settings.toml`: keys, volume, rules, the last game's menu choices and the high score table,
+//! kept in `~/Library/Application Support/Tetris/` so they outlast the app (and rebuilds of it).
+//! The settings screen edits them in the game (`tetris_rs::Config`); `config` and `apply`
+//! convert.
 
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+use frontend::KeyCode;
+use tetris_rs::options::{LeftRight, Rules as GameRules};
 use tetris_rs::saved::{Choices, HighScores};
-use tetris_rs::Saved;
+use tetris_rs::{Config, Saved};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -14,11 +18,70 @@ pub struct Settings {
     pub volume: f32,
     /// Keep the high score table between launches.
     pub save_high_scores: bool,
+    pub fullscreen: bool,
+    /// Scale the picture by whole numbers only.
+    pub integer_scale: bool,
     pub keys: frontend::Bindings,
+    pub rules: Rules,
     pub last_game: LastGame,
     /// Saved once there is a table to save; absent means the game's own default table.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub high_scores: Option<Table>,
+}
+
+/// Rule changes; the defaults are the original game's.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Rules {
+    /// Frames Left/Right is held before the piece repeats (original 16).
+    pub das_delay: u8,
+    /// Frames between repeats (original 6).
+    pub das_repeat: u8,
+    /// Left and Right held together: "both" (original), "last" or "neither".
+    pub left_right: String,
+    /// Down with Left/Right slows the piece (original true).
+    pub slowdown: bool,
+    pub hard_drop: bool,
+    pub ghost: bool,
+}
+
+impl Default for Rules {
+    fn default() -> Self {
+        Rules::from_game(&GameRules::ORIGINAL)
+    }
+}
+
+impl Rules {
+    fn from_game(r: &GameRules) -> Self {
+        Rules {
+            das_delay: r.das_delay,
+            das_repeat: r.das_repeat,
+            left_right: match r.left_right {
+                LeftRight::Both => "both",
+                LeftRight::Last => "last",
+                LeftRight::Neither => "neither",
+            }
+            .into(),
+            slowdown: r.slowdown,
+            hard_drop: r.hard_drop,
+            ghost: r.ghost,
+        }
+    }
+
+    fn to_game(&self) -> GameRules {
+        GameRules {
+            das_delay: self.das_delay.clamp(1, 30),
+            das_repeat: self.das_repeat.clamp(1, 10),
+            left_right: match self.left_right.as_str() {
+                "last" => LeftRight::Last,
+                "neither" => LeftRight::Neither,
+                _ => LeftRight::Both,
+            },
+            slowdown: self.slowdown,
+            hard_drop: self.hard_drop,
+            ghost: self.ghost,
+        }
+    }
 }
 
 /// The menu choices the next game starts from.
@@ -53,7 +116,10 @@ impl Default for Settings {
         Settings {
             volume: 1.0,
             save_high_scores: true,
+            fullscreen: false,
+            integer_scale: false,
             keys: frontend::Bindings::default(),
+            rules: Rules::default(),
             last_game: LastGame::default(),
             high_scores: None,
         }
@@ -109,11 +175,69 @@ impl Settings {
         }
     }
 
+    /// The settings screen's view of these settings.
+    pub fn config(&self) -> Config {
+        let k = &self.keys;
+        let keys = [k.up, k.down, k.left, k.right, k.a, k.b, k.start, k.select, k.back].map(key_name);
+        Config {
+            keys,
+            volume: (self.volume.clamp(0.0, 1.0) * 10.0).round() as u8,
+            save_high_scores: self.save_high_scores,
+            fullscreen: self.fullscreen,
+            integer_scale: self.integer_scale,
+            rules: self.rules.to_game(),
+        }
+    }
+
+    /// Take what the settings screen changed.
+    pub fn apply(&mut self, c: &Config) {
+        let key = |i: usize, old: KeyCode| key_code(&c.keys[i]).unwrap_or(old);
+        let k = self.keys.clone();
+        self.keys = frontend::Bindings {
+            up: key(0, k.up),
+            down: key(1, k.down),
+            left: key(2, k.left),
+            right: key(3, k.right),
+            a: key(4, k.a),
+            b: key(5, k.b),
+            start: key(6, k.start),
+            select: key(7, k.select),
+            back: key(8, k.back),
+        };
+        self.volume = c.volume as f32 / 10.0;
+        self.save_high_scores = c.save_high_scores;
+        self.fullscreen = c.fullscreen;
+        self.integer_scale = c.integer_scale;
+        self.rules = Rules::from_game(&c.rules);
+    }
+
+    /// The window's view of these settings.
+    pub fn frontend(&self) -> frontend::Options {
+        frontend::Options {
+            bindings: self.keys.clone(),
+            volume: self.volume,
+            fullscreen: self.fullscreen,
+            integer_scale: self.integer_scale,
+        }
+    }
+
     /// What to restore at power-on.
     pub fn saved(&self) -> Saved {
         let high_scores = self.high_scores.as_ref().filter(|_| self.save_high_scores).map(Table::to_game);
         Saved { high_scores, choices: self.last_game.to_game() }
     }
+}
+
+/// A key's name as the settings file writes it (`KeyX`, `ArrowUp`...).
+pub fn key_name(code: KeyCode) -> String {
+    match toml::Value::try_from(code) {
+        Ok(toml::Value::String(s)) => s,
+        _ => format!("{code:?}"),
+    }
+}
+
+pub fn key_code(name: &str) -> Option<KeyCode> {
+    toml::Value::String(name.to_string()).try_into().ok()
 }
 
 impl LastGame {
@@ -180,6 +304,8 @@ mod tests {
     fn round_trips() {
         let mut s = Settings::default();
         s.keys.a = frontend::KeyCode::KeyK;
+        s.rules.hard_drop = true;
+        s.rules.left_right = "last".into();
         s.last_game = LastGame { game_type: "B".into(), music: "off".into(), level: 12, height: 4 };
         let mut h = HighScores::empty();
         h.set_row(0, "SAM", 999_999, 29);
@@ -191,6 +317,11 @@ mod tests {
         let saved = back.saved();
         assert_eq!(saved.high_scores.unwrap(), h);
         assert_eq!(LastGame::from_game(&saved.choices), s.last_game);
+        let mut again = Settings::default();
+        again.apply(&s.config());
+        assert_eq!((again.keys, again.rules), (s.keys.clone(), s.rules.clone()));
+        assert_eq!(key_name(KeyCode::ShiftRight), "ShiftRight");
+        assert_eq!(key_code("Digit7"), Some(KeyCode::Digit7));
     }
 
     #[test]

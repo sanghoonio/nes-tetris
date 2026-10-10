@@ -7,6 +7,9 @@
 //! Keys come from [`Bindings`]; the defaults are arrows = D-pad, X = A (rotate clockwise),
 //! Z = B (rotate anticlockwise), Enter = Start, Right Shift = Select, Escape = Back. Quit with
 //! Cmd+Q or by closing the window.
+//!
+//! Gamepads work too, in the usual emulator layout: d-pad or left stick, east face button = A,
+//! south = B, Start, Select (Back/View/Share).
 
 use std::collections::VecDeque;
 use std::num::NonZeroU32;
@@ -93,17 +96,32 @@ pub struct Options {
     pub bindings: Bindings,
     /// Output volume, 0.0..=1.0.
     pub volume: f32,
+    pub fullscreen: bool,
+    /// Scale by whole numbers only, so every NES pixel is the same size (sharper, with a wider
+    /// border).
+    pub integer_scale: bool,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { bindings: Bindings::default(), volume: 1.0 }
+        Options { bindings: Bindings::default(), volume: 1.0, fullscreen: false, integer_scale: false }
     }
 }
 
 pub trait Game {
-    /// Run one frame holding `buttons`; return the finished frame and its audio (mono, [-1, 1]).
-    fn frame(&mut self, buttons: u8) -> (Box<[u8; WIDTH * HEIGHT]>, Vec<f32>);
+    /// Run one frame holding `buttons`; `key` is a key pressed since the last frame (for
+    /// rebinding). Return the finished frame and its audio (mono, [-1, 1]).
+    fn frame(&mut self, buttons: u8, key: Option<KeyCode>) -> (Box<[u8; WIDTH * HEIGHT]>, Vec<f32>);
+
+    /// Checked after each frame: close the window.
+    fn quit(&self) -> bool {
+        false
+    }
+
+    /// Checked after each frame: new bindings or volume to use from now on.
+    fn take_options(&mut self) -> Option<Options> {
+        None
+    }
 }
 
 /// The 2C02 palette as 0x00RRGGBB (the common nesdev palette, as also used by tetanes-core).
@@ -135,6 +153,10 @@ pub fn run<G: Game + 'static>(title: &str, options: Options, make_game: impl FnO
         frame: Box::new([0x0F; WIDTH * HEIGHT]),
         audio,
         bindings: options.bindings,
+        key: None,
+        fullscreen: options.fullscreen,
+        integer_scale: options.integer_scale,
+        pads: gilrs::Gilrs::new().map_err(|e| eprintln!("gamepads unavailable: {e}")).ok(),
     };
     event_loop.run_app(&mut app).expect("event loop");
 }
@@ -149,6 +171,11 @@ struct App<G> {
     frame: Box<[u8; WIDTH * HEIGHT]>,
     audio: Audio,
     bindings: Bindings,
+    /// A key pressed since the last frame.
+    key: Option<KeyCode>,
+    fullscreen: bool,
+    integer_scale: bool,
+    pads: Option<gilrs::Gilrs>,
 }
 
 impl<G: Game> ApplicationHandler for App<G> {
@@ -163,6 +190,7 @@ impl<G: Game> ApplicationHandler for App<G> {
         let context = softbuffer::Context::new(window.clone()).expect("softbuffer context");
         self.surface = Some(softbuffer::Surface::new(&context, window.clone()).expect("surface"));
         self.window = Some(window);
+        self.apply_fullscreen();
         self.next_frame = Instant::now();
     }
 
@@ -171,6 +199,9 @@ impl<G: Game> ApplicationHandler for App<G> {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::KeyboardInput { event, .. } => {
                 let PhysicalKey::Code(code) = event.physical_key else { return };
+                if event.state == ElementState::Pressed && !event.repeat {
+                    self.key.get_or_insert(code);
+                }
                 let Some(bit) = self.bindings.button(code) else { return };
                 match event.state {
                     ElementState::Pressed => self.buttons |= bit,
@@ -190,10 +221,24 @@ impl<G: Game> ApplicationHandler for App<G> {
                 self.next_frame = now;
             }
             while self.next_frame <= now {
-                let (frame, samples) = self.game.frame(self.buttons);
+                let buttons = self.buttons | self.pad_buttons();
+                let (frame, samples) = self.game.frame(buttons, self.key.take());
                 self.frame = frame;
                 self.audio.push(&samples);
                 self.next_frame += FRAME_TIME;
+                if let Some(options) = self.game.take_options() {
+                    self.bindings = options.bindings;
+                    self.audio.volume = options.volume.clamp(0.0, 1.0);
+                    self.integer_scale = options.integer_scale;
+                    if options.fullscreen != self.fullscreen {
+                        self.fullscreen = options.fullscreen;
+                        self.apply_fullscreen();
+                    }
+                }
+                if self.game.quit() {
+                    event_loop.exit();
+                    return;
+                }
             }
             if let Some(w) = &self.window {
                 w.request_redraw();
@@ -204,6 +249,38 @@ impl<G: Game> ApplicationHandler for App<G> {
 }
 
 impl<G> App<G> {
+    fn apply_fullscreen(&self) {
+        if let Some(w) = &self.window {
+            w.set_fullscreen(self.fullscreen.then_some(winit::window::Fullscreen::Borderless(None)));
+        }
+    }
+
+    /// Buttons held on any connected gamepad.
+    fn pad_buttons(&mut self) -> u8 {
+        use gilrs::{Axis, Button};
+        let Some(pads) = &mut self.pads else { return 0 };
+        while pads.next_event().is_some() {}
+        let mut held = 0;
+        for (_, pad) in pads.gamepads() {
+            let stick = |axis, sign: f32| pad.value(axis) * sign > 0.5;
+            for (on, bit) in [
+                (pad.is_pressed(Button::DPadUp) || stick(Axis::LeftStickY, 1.0), BTN_UP),
+                (pad.is_pressed(Button::DPadDown) || stick(Axis::LeftStickY, -1.0), BTN_DOWN),
+                (pad.is_pressed(Button::DPadLeft) || stick(Axis::LeftStickX, -1.0), BTN_LEFT),
+                (pad.is_pressed(Button::DPadRight) || stick(Axis::LeftStickX, 1.0), BTN_RIGHT),
+                (pad.is_pressed(Button::East), BTN_A),
+                (pad.is_pressed(Button::South), BTN_B),
+                (pad.is_pressed(Button::Start), BTN_START),
+                (pad.is_pressed(Button::Select), BTN_SELECT),
+            ] {
+                if on {
+                    held |= bit;
+                }
+            }
+        }
+        held
+    }
+
     fn draw(&mut self) {
         let (Some(window), Some(surface)) = (&self.window, &mut self.surface) else { return };
         let size = window.inner_size();
@@ -213,8 +290,12 @@ impl<G> App<G> {
         surface.resize(w, h).expect("resize");
         let mut buf = surface.buffer_mut().expect("buffer");
         let (w, h) = (size.width as usize, size.height as usize);
-        // Integer-free nearest-neighbour scale to the window, letterboxed to keep the aspect.
-        let scale = (w as f32 / WIDTH as f32).min(h as f32 / HEIGHT as f32);
+        // Nearest-neighbour scale to fit the window (whole numbers only with `integer_scale`),
+        // letterboxed to keep the aspect.
+        let mut scale = (w as f32 / WIDTH as f32).min(h as f32 / HEIGHT as f32);
+        if self.integer_scale && scale >= 1.0 {
+            scale = scale.floor();
+        }
         let (ow, oh) = ((WIDTH as f32 * scale) as usize, (HEIGHT as f32 * scale) as usize);
         let (x0, y0) = ((w - ow) / 2, (h - oh) / 2);
         buf.fill(0);

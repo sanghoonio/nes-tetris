@@ -10,7 +10,7 @@ use std::path::PathBuf;
 struct Recompiled(Stepper);
 
 impl frontend::Game for Recompiled {
-    fn frame(&mut self, buttons: u8) -> (Box<[u8; 256 * 240]>, Vec<f32>) {
+    fn frame(&mut self, buttons: u8, _key: Option<frontend::KeyCode>) -> (Box<[u8; 256 * 240]>, Vec<f32>) {
         let snap = self.0.next_frame(buttons, true);
         (snap.pixels.expect("rendered"), snap.samples)
     }

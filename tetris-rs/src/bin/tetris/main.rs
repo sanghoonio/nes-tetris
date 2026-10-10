@@ -6,13 +6,14 @@
 //! e.g. from the app bundle (`macos/bundle.sh`). A ROM path given here is used instead.
 //!
 //! Settings, the last game's choices and the high scores are kept in `settings.toml`
-//! (`settings.rs`), saved as they change.
+//! (`settings.rs`), saved as they change. The title screen has START / SETTINGS / EXIT
+//! (`tetris_rs::Options::menus`).
 
 mod settings;
 
 use std::sync::Arc;
-use settings::{LastGame, Settings, Table};
-use tetris_rs::{Rom, Runner, Saved};
+use settings::{key_name, LastGame, Settings, Table};
+use tetris_rs::{Options, Rom, Runner, Saved};
 
 /// The ROM this program was built with.
 const ROM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/tetris.nes"));
@@ -25,6 +26,9 @@ const INIT_MAGIC: (usize, [u8; 5]) = (0x750, [0x12, 0x34, 0x56, 0x78, 0x9A]);
 struct Readable {
     runner: Runner,
     settings: Settings,
+    quit: bool,
+    /// Bindings and volume for the window, after the settings screen changed them.
+    options: Option<frontend::Options>,
 }
 
 impl Readable {
@@ -50,10 +54,24 @@ impl Readable {
 }
 
 impl frontend::Game for Readable {
-    fn frame(&mut self, buttons: u8) -> (Box<[u8; 256 * 240]>, Vec<f32>) {
-        let out = self.runner.next_frame(buttons);
+    fn frame(&mut self, buttons: u8, key: Option<frontend::KeyCode>) -> (Box<[u8; 256 * 240]>, Vec<f32>) {
+        let out = self.runner.next_frame_with_key(buttons, key.map(key_name));
+        if let Some(config) = &out.config {
+            self.settings.apply(config);
+            self.settings.save();
+            self.options = Some(self.settings.frontend());
+        }
         self.save_changes(&out.ram);
+        self.quit = out.quit;
         (out.pixels, out.samples)
+    }
+
+    fn quit(&self) -> bool {
+        self.quit
+    }
+
+    fn take_options(&mut self) -> Option<frontend::Options> {
+        self.options.take()
     }
 }
 
@@ -68,10 +86,12 @@ fn main() {
     if !Settings::dir().join("settings.toml").exists() {
         settings.save();
     }
-    let options = frontend::Options { bindings: settings.keys.clone(), volume: settings.volume };
     let saved = settings.saved();
-    frontend::run("Tetris", options, |rate| Readable {
-        runner: Runner::with_saved(rom, Some(rate), Some(saved)),
+    let options = Options { menus: true, config: settings.config() };
+    frontend::run("Tetris", settings.frontend(), |rate| Readable {
+        runner: Runner::with_options(rom, Some(rate), Some(saved), options),
         settings,
+        quit: false,
+        options: None,
     });
 }

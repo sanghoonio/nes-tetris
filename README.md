@@ -11,12 +11,17 @@ The readable game's binary embeds the ROM at build time (`tetris-rs/build.rs`, f
 or `tetris.nes`; the copy stays under the gitignored `target/`), so the app runs on its own. Without
 `--install` the app is left at `target/Tetris.app`. The recompile reads the ROM at run time.
 
-Keys, volume, the last game's choices and the high scores are kept in
+The app's title screen has START / SETTINGS / EXIT (no attract demo). SETTINGS has three pages
+in the game's own style: CONTROLS (every key, Back included), GAME (DAS delay and repeat,
+Left+Right handling, the Down+Left+Right slowdown, hard drop on Up, ghost piece, saving high
+scores) and SYSTEM (volume, fullscreen, pixel scale, reset). Every rule's default is the
+original game. Settings, the last game's choices and the high scores are kept in
 `~/Library/Application Support/Tetris/settings.toml`, written on first launch and saved as
-they change. Escape is Back, not quit; quit with Cmd+Q or by closing the window.
+they change. Escape is Back, not quit; quit with EXIT, Cmd+Q or by closing the window.
 
 Default keys: arrows, X = A (rotate clockwise), Z = B (anticlockwise), Enter = Start, Right
-Shift = Select, Escape = Back.
+Shift = Select, Escape = Back. Gamepads use the usual emulator layout (d-pad or left stick,
+east button = A, south = B, Start, Select); only keys are remappable.
 
 ## What's here
 
@@ -25,7 +30,7 @@ Shift = Select, Escape = Back.
 | `recomp/` | Static recompile: `gen/gen.py` translates the ROM's 6502 code into `recomp/generated/tetris.rs` (gitignored, generated from your ROM), run on a small NES model (CPU ops, MMC1, joypads, PPU timing). |
 | `tetris-rs/` | The game rewritten as readable Rust, routine by routine, keeping the original's variables (`vars.rs`) and hardware (`hw.rs`) so it can be checked against the recompile. The waits for vblank are `async`, so the game runs a frame per poll with no threads, and the library builds for `wasm32-unknown-unknown`. |
 | `ppu/`, `apu/` | NES video and sound models shared by both ports. |
-| `frontend/` | Window, keyboard and audio, shared by both binaries. |
+| `frontend/` | Window, keyboard, gamepads and audio, shared by both binaries. |
 | `disasm/` | (gitignored) the community disassembly the work is based on. |
 
 ## How it's checked
@@ -41,6 +46,11 @@ Each layer is checked against the one below it:
    compared (variables, PPU, mapper, joypads, APU writes, return value).
 3. **The whole readable game vs the recompile** (`tetris-rs/tests/frames.rs`): every named variable
    and the picture at every frame.
+
+The app's additions (`tetris-rs/src/options.rs`, `pc_menus.rs`) are off in the runs above, which
+are the original game. `tests/frames.rs` also runs with the title menu on (START chosen at once)
+and checks that everything after the title still matches; `tests/menus.rs` and
+`tests/rules.rs` check the menus and each rule change by behaviour.
 
 Run them with `cargo test` (about two minutes). Setting up from a fresh clone:
 

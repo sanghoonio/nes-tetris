@@ -101,6 +101,34 @@ impl Game {
         self.vars.oam_staging_length = oam;
     }
 
+    /// The ghost piece (a rule change): the falling piece's sprites at its landing row, on
+    /// alternate frames, staged last so the sprite-per-line limit drops it before anything
+    /// else. The sprite stager's working variables are put back, since what it leaves in them
+    /// is visible later (see above).
+    pub(crate) fn stage_ghost_piece(&mut self) {
+        let p = &self.vars.active;
+        if p.play_state != 1 || p.current_piece >= 0x13 || self.vars.frame_counter.0 & 1 != 0 {
+            return;
+        }
+        let kept = (
+            self.vars.general_counter,
+            self.vars.general_counter2,
+            self.vars.general_counter3,
+            self.vars.general_counter4,
+            self.vars.general_counter5,
+            self.vars.original_y,
+        );
+        let y = self.vars.active.tetrimino_y;
+        let landing = self.landing_row();
+        if landing > y {
+            self.vars.active.tetrimino_y = landing;
+            self.stage_sprite_for_current_piece();
+            self.vars.active.tetrimino_y = y;
+        }
+        let v = &mut self.vars;
+        (v.general_counter, v.general_counter2, v.general_counter3, v.general_counter4, v.general_counter5, v.original_y) = kept;
+    }
+
     /// `stageSpriteForNextPiece`: draw the next piece in the preview, unless the preview is
     /// switched off.
     pub fn stage_sprite_for_next_piece(&mut self) {

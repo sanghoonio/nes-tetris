@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
 
 use crate::hw::{ApuSink, Joypads, Mmc1};
-use crate::{layout, Game, Rom, Saved, Vars};
+use crate::{layout, Game, Options, Rom, Saved, Vars};
 
 pub const WIDTH: usize = ppu::WIDTH;
 pub const HEIGHT: usize = ppu::HEIGHT;
@@ -36,10 +36,16 @@ pub struct FrameOut {
     pub vram: Box<[u8; 0x800]>,
     pub palette: [u8; 32],
     pub oam: [u8; 256],
+    /// EXIT was chosen on the title menu.
+    pub quit: bool,
+    /// The settings, when the settings screen changed them this frame.
+    pub config: Option<crate::Config>,
 }
 
 struct FrameIn {
     buttons: u8,
+    /// The key pressed this frame, by name (the settings screen's rebinding and Back).
+    key: Option<String>,
     pokes: Vec<(u16, u8)>,
 }
 
@@ -116,6 +122,8 @@ impl Game {
             apu,
             io: None,
             saved: None,
+            options: Options::original(),
+            ui: Default::default(),
         };
         g.ppu.chr_banks = g.mmc1.chr_banks();
         g.ppu.mirroring = g.mmc1.control & 3;
@@ -136,6 +144,8 @@ impl Game {
                 vram: Box::new(self.ppu.vram),
                 palette: self.ppu.palette,
                 oam: self.ppu.oam,
+                quit: self.ui.quit,
+                config: std::mem::take(&mut self.ui.config_changed).then(|| self.options.config.clone()),
             };
             *io.out.borrow_mut() = Some(out);
             NextFrame(false).await;
@@ -144,10 +154,30 @@ impl Game {
         self.nmi();
     }
 
+    /// Left and Right held together, per the rules (the original passes both).
+    fn left_right(&mut self, buttons: u8) -> u8 {
+        use crate::options::LeftRight;
+        const LR: u8 = crate::buttons::LEFT | crate::buttons::RIGHT;
+        let pressed = buttons & !self.ui.raw_buttons;
+        self.ui.raw_buttons = buttons;
+        if pressed & LR != 0 && pressed & LR != LR {
+            self.ui.last_horizontal = pressed & LR;
+        }
+        if buttons & LR != LR {
+            return buttons;
+        }
+        match self.options.config.rules.left_right {
+            LeftRight::Both => buttons,
+            LeftRight::Neither => buttons & !LR,
+            LeftRight::Last => buttons & !LR | self.ui.last_horizontal,
+        }
+    }
+
     /// Hold the buttons `Runner` left for this frame and apply its pokes.
     fn take_input(&mut self, io: &FrameIo) {
         let input = io.input.borrow_mut().take().expect("runner left no input");
-        self.joypads.held[0] = input.buttons;
+        self.joypads.held[0] = self.left_right(input.buttons);
+        self.ui.key = input.key;
         if !input.pokes.is_empty() {
             self.vars.with_ram(|ram| {
                 for &(a, v) in &input.pokes {
@@ -175,6 +205,9 @@ impl Game {
 
     /// `render`: the video work for the current screen.
     fn render(&mut self) {
+        if self.vars.render_mode == crate::pc_menus::RENDER_SETTINGS {
+            return self.render_mode_settings();
+        }
         self.switch_target(layout::RENDER + 5, self.vars.render_mode);
         match self.vars.render_mode {
             0 => self.render_mode_legal_and_title_screens(),
@@ -250,6 +283,11 @@ impl Runner {
 
     /// As [`Runner::new`], restoring `saved` at power-on.
     pub fn with_saved(rom: Arc<Rom>, sample_rate: Option<u32>, saved: Option<Saved>) -> Self {
+        Self::with_options(rom, sample_rate, saved, Options::original())
+    }
+
+    /// As [`Runner::with_saved`], with the app's additions.
+    pub fn with_options(rom: Arc<Rom>, sample_rate: Option<u32>, saved: Option<Saved>, options: Options) -> Self {
         let io = Rc::new(FrameIo::default());
         let apu: Box<dyn ApuSink> = match sample_rate {
             Some(rate) => Box::new(Synth { apu: apu::Apu::new(rate), rom: rom.clone(), odd_frame: false }),
@@ -258,6 +296,7 @@ impl Runner {
         let mut game = Game::new(rom, apu);
         game.io = Some(io.clone());
         game.saved = saved;
+        game.options = options;
         let game = Box::pin(async move {
             // The first frame's buttons are held from power-on.
             let first = game.io.clone().unwrap();
@@ -274,7 +313,16 @@ impl Runner {
 
     /// As [`Runner::next_frame`], writing `pokes` into RAM at the start of the frame (tests).
     pub fn next_frame_with(&mut self, buttons: u8, pokes: Vec<(u16, u8)>) -> FrameOut {
-        *self.io.input.borrow_mut() = Some(FrameIn { buttons, pokes });
+        self.step(FrameIn { buttons, key: None, pokes })
+    }
+
+    /// As [`Runner::next_frame`], also passing the key pressed this frame by name (`KeyX`...).
+    pub fn next_frame_with_key(&mut self, buttons: u8, key: Option<String>) -> FrameOut {
+        self.step(FrameIn { buttons, key, pokes: Vec::new() })
+    }
+
+    fn step(&mut self, input: FrameIn) -> FrameOut {
+        *self.io.input.borrow_mut() = Some(input);
         let Poll::Pending = self.game.as_mut().poll(&mut Context::from_waker(Waker::noop()));
         self.io.out.borrow_mut().take().expect("the game suspended without finishing a frame")
     }

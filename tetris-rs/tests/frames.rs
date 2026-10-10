@@ -18,7 +18,7 @@ use recomp::scripts::{self, Coverage, Script};
 use recomp::stepper::Stepper;
 use std::sync::Arc;
 use tetris_rs::vars::{Player, SCRATCH};
-use tetris_rs::{Rom, Runner, Vars};
+use tetris_rs::{Config, Options, Rom, Runner, Vars};
 
 fn rom_bytes() -> Vec<u8> {
     let path = std::env::var_os("TETRIS_ROM")
@@ -72,9 +72,17 @@ fn var_diffs(ours: &[u8; 0x800], theirs: &[u8; 0x800]) -> Vec<String> {
     out
 }
 
-fn compare(name: &str, frames: usize, mut script: Script) -> Coverage {
+fn compare(name: &str, frames: usize, script: Script) -> Coverage {
+    compare_with(name, frames, script, Options::original())
+}
+
+/// As `compare`, running ours with `options`. With the app's menus on, the title screen differs
+/// (its menu and arrows), so video isn't compared until the next screen is up.
+fn compare_with(name: &str, frames: usize, mut script: Script, options: Options) -> Coverage {
     let rom = rom_bytes();
-    let mut ours = Runner::new(Arc::new(Rom::new(&rom).expect("ROM")), None);
+    let menus = options.menus;
+    let mut ours = Runner::with_options(Arc::new(Rom::new(&rom).expect("ROM")), None, None, options);
+    let mut since_title = 0;
     let mut original = Stepper::new(&rom);
     let mut cov = Coverage::default();
     let mut ram = [0u8; 0x800];
@@ -83,9 +91,18 @@ fn compare(name: &str, frames: usize, mut script: Script) -> Coverage {
         let (buttons, pokes) = script(f, &ram);
         let theirs = original.next_frame_with(buttons, true, pokes.clone());
         let mine = ours.next_frame_with(buttons, pokes);
-        let diffs = var_diffs(&mine.ram, &theirs.ram);
+        let mut diffs = var_diffs(&mine.ram, &theirs.ram);
+        if menus && theirs.ram[0xC0] == 1 {
+            // The menu's arrows, staged as sprites.
+            diffs.retain(|d| !d.starts_with("oam_staging"));
+        }
         assert!(diffs.is_empty(), "{name}: frame {f} (game mode {}, state {}):\n  {}",
             theirs.ram[0xC0], theirs.ram[0xA7], diffs.join("\n  "));
+        since_title = if theirs.ram[0xC0] <= 1 { 0 } else { since_title + 1 };
+        if menus && since_title < 10 {
+            continue_after_picture(&mut cov, &mut ram, &theirs.ram);
+            continue;
+        }
         if let Some(i) = (0..0x800).find(|&i| mine.vram[i] != theirs.vram[i]) {
             panic!("{name}: frame {f} nametable byte ${:04X} (of the 2 KB): ours {:02X} original {:02X}",
                 i, mine.vram[i], theirs.vram[i]);
@@ -135,6 +152,22 @@ fn level_29() {
 #[test]
 fn line_clears() {
     compare("line-clears", 15000, scripts::line_clears(3));
+}
+
+/// The app's title menu, START chosen at once, then random play: everything after the title is
+/// the original game.
+#[test]
+fn title_menu() {
+    let mut play = scripts::random_play(2);
+    let script: Script = Box::new(move |f, ram| {
+        if ram[0xC0] == 1 {
+            (if f % 20 == 0 { 0x10 } else { 0 }, vec![])
+        } else {
+            play(f, ram)
+        }
+    });
+    let cov = compare_with("title-menu", 8000, script, Options { menus: true, config: Config::default() });
+    assert!(cov.games >= 2, "{cov:?}");
 }
 
 #[test]
