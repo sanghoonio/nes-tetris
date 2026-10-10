@@ -128,6 +128,7 @@ ram_struct! {
         tetrimino_y: u8 = 0x01,
         /// Orientation id of the falling piece (0x00..=0x12), or 0x13 for "none".
         current_piece: u8 = 0x02,
+        unused_03: u8 = 0x03,
         level_number: u8 = 0x04,
         fall_timer: u8 = 0x05,
         /// DAS counter for left/right.
@@ -147,6 +148,8 @@ ram_struct! {
         curtain_row: u8 = 0x18,
         start_height: u8 = 0x19,
         garbage_hole: u8 = 0x1A,
+        /// Unused, but copied with the rest of the block.
+        unused_1b: [u8; 5] = 0x1B,
     }
 }
 
