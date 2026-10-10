@@ -135,8 +135,10 @@ impl Game {
         self.two_digs_to_ppu(lines[0]);
     }
 
-    /// `twoDigsToPPU`: write a BCD byte as two digit tiles (the digit tiles are 0..=9).
+    /// `twoDigsToPPU`: write a BCD byte as two digit tiles (the digit tiles are 0..=9). The
+    /// original keeps the byte in `general_counter`, where it stays.
     pub fn two_digs_to_ppu(&mut self, bcd: u8) {
+        self.vars.general_counter = bcd;
         self.ppu_data(bcd >> 4);
         self.ppu_data(bcd & 0x0F);
     }
