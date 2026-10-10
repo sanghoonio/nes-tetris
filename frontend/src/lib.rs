@@ -45,6 +45,8 @@ pub struct Input {
     pub held: Vec<String>,
     /// Pressed since the last frame, in order.
     pub pressed: Vec<String>,
+    /// The window isn't focused (the player switched to another window).
+    pub unfocused: bool,
 }
 
 /// How the window plays the game.
@@ -106,6 +108,7 @@ pub fn run<G: Game + 'static>(title: &str, options: Options, make_game: impl FnO
         held: Vec::new(),
         pressed: Vec::new(),
         pad_held: Vec::new(),
+        focused: true,
         next_frame: Instant::now(),
         frame: Box::new([0x0F; WIDTH * HEIGHT]),
         audio,
@@ -126,6 +129,7 @@ struct App<G> {
     pressed: Vec<String>,
     /// Gamepad buttons held last frame, by name.
     pad_held: Vec<String>,
+    focused: bool,
     next_frame: Instant,
     frame: Box<[u8; WIDTH * HEIGHT]>,
     audio: Audio,
@@ -164,6 +168,13 @@ impl<G: Game> ApplicationHandler for App<G> {
                     }
                     ElementState::Pressed => {}
                     ElementState::Released => self.held.retain(|&k| k != code),
+                }
+            }
+            WindowEvent::Focused(focused) => {
+                self.focused = focused;
+                // Releases while away never arrive.
+                if !focused {
+                    self.held.clear();
                 }
             }
             WindowEvent::RedrawRequested => self.draw(),
@@ -220,7 +231,7 @@ impl<G> App<G> {
         let mut held: Vec<String> = self.held.iter().map(|&k| key_name(k)).collect();
         held.extend(pads.iter().cloned());
         self.pad_held = pads;
-        Input { held, pressed }
+        Input { held, pressed, unfocused: !self.focused }
     }
 
     /// Buttons held on any connected gamepad.

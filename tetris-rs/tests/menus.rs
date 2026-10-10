@@ -15,7 +15,7 @@ impl App {
 
     /// Run a frame holding `held`, of which `pressed` were just pressed.
     pub fn frame(&mut self, held: &[&str], pressed: &[&str]) -> FrameOut {
-        let keys = Keys { held: held.iter().map(|s| s.to_string()).collect(), pressed: pressed.iter().map(|s| s.to_string()).collect() };
+        let keys = Keys { held: held.iter().map(|s| s.to_string()).collect(), pressed: pressed.iter().map(|s| s.to_string()).collect(), ..Default::default() };
         self.0.next_frame_keys(keys)
     }
 
@@ -161,6 +161,32 @@ fn pause_menu() {
     app.tap("ArrowDown", 3);
     let out = app.tap("Enter", 20);
     assert_eq!(mode(&out), 1);
+}
+
+#[test]
+fn pause_items_centred_under_pause() {
+    let mut app = playing(Config::default());
+    let out = app.tap("Escape", 5);
+    // Leftmost sprite of each row: "PAUSE" spans x 112..152, so RESUME starts at 108, QUIT at 116.
+    let left = |y: u8, tile: u8| out.oam.chunks(4).filter(|s| s[0] == y && s[1] == tile).map(|s| s[3]).min();
+    assert_eq!(left(135, 0x1B), Some(108)); // R
+    assert_eq!(left(147, 0x1A), Some(116)); // Q
+}
+
+#[test]
+fn losing_focus_pauses() {
+    let mut app = playing(Config::default());
+    let paused = |out: &FrameOut| out.oam.chunks(4).any(|s| s[1] == 0x19 && s[0] < 0xEF);
+    let away = Keys { unfocused: true, ..Default::default() };
+    let mut out = app.0.next_frame_keys(away.clone());
+    for _ in 0..30 {
+        out = app.0.next_frame_keys(away.clone());
+    }
+    assert!(paused(&out), "not paused while unfocused");
+    // Coming back leaves it paused until RESUME.
+    assert!(paused(&app.idle(30)));
+    app.tap("Enter", 10);
+    assert!(!paused(&app.idle(10)), "still paused after RESUME");
 }
 
 #[test]

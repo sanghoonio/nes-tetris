@@ -55,7 +55,7 @@ impl Readable {
 
 impl frontend::Game for Readable {
     fn frame(&mut self, input: &frontend::Input) -> (Box<[u8; 256 * 240]>, Vec<f32>) {
-        let keys = Keys { held: input.held.clone(), pressed: input.pressed.clone() };
+        let keys = Keys { held: input.held.clone(), pressed: input.pressed.clone(), unfocused: input.unfocused };
         let out = self.runner.next_frame_keys(keys);
         if let Some(config) = &out.config {
             self.settings.apply(config);

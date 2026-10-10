@@ -15,7 +15,7 @@ fn game(rules: Rules) -> (Runner, Vars) {
     for f in 0..2000 {
         let enter = [10, 40, 70, 100].contains(&f);
         let key = |on: bool| if on { vec!["Enter".to_string()] } else { vec![] };
-        let v = Vars::from_ram(&game.next_frame_keys(Keys { held: key(enter), pressed: key(enter) }).ram);
+        let v = Vars::from_ram(&game.next_frame_keys(Keys { held: key(enter), pressed: key(enter), ..Default::default() }).ram);
         if f > 100 && v.game_mode == 4 && v.player1.play_state == 1 && v.player1.current_piece < 0x13 {
             return (game, v);
         }

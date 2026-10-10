@@ -21,9 +21,9 @@ const ARROW_TILE: u8 = 0x27;
 const FLIP_H: u8 = 0x40;
 const BLANK_TILE: u8 = 0xFF;
 
-/// "PAUSE" is five sprites at x 112..152, y 119; the menu goes under it, left-aligned with it.
+/// "PAUSE" is five sprites at x 112..152, y 119; the menu goes under it, each item centred on it.
 const PAUSE_ITEMS: [(&str, u8); 2] = [("RESUME", 135), ("QUIT", 147)];
-const PAUSE_X: u8 = 112;
+const PAUSE_CENTRE: u8 = 132;
 
 /// The title menu, left-aligned under the logo where `PUSH START` was (row 20, columns 7..16).
 const TITLE_ITEMS: [(&str, u8, u8); 3] = [("START", 18, 7), ("SETTINGS", 20, 7), ("EXIT", 22, 7)];
@@ -438,15 +438,16 @@ impl Game {
             self.vars.sprite_y_offset = 0x77;
             self.vars.sprite_index_in_oam_content_lookup = 0x05;
             self.load_sprite_into_oam_staging();
+            let left = |text: &str| PAUSE_CENTRE - 4 * text.len() as u8;
             for (text, y) in PAUSE_ITEMS {
                 for (i, t) in self.text_tiles(text).into_iter().enumerate() {
-                    self.stage_sprite(y, t, 0, PAUSE_X + 8 * i as u8);
+                    self.stage_sprite(y, t, 0, left(text) + 8 * i as u8);
                 }
             }
             if self.vars.frame_counter.0 as u8 & MENU_CURSOR_MASK != 0 {
                 let (text, y) = PAUSE_ITEMS[cursor];
-                self.stage_sprite(y, ARROW_TILE, 0, PAUSE_X - 9);
-                self.stage_sprite(y, ARROW_TILE, FLIP_H, PAUSE_X + 8 * text.len() as u8 + 1);
+                self.stage_sprite(y, ARROW_TILE, 0, left(text) - 9);
+                self.stage_sprite(y, ARROW_TILE, FLIP_H, left(text) + 8 * text.len() as u8 + 1);
             }
             self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
             let keys = self.menu_pressed();

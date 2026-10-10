@@ -20,6 +20,8 @@ pub struct Keys {
     pub held: Vec<String>,
     /// Pressed since the last frame, in order.
     pub pressed: Vec<String>,
+    /// The window isn't focused (switched away from): play pauses.
+    pub unfocused: bool,
 }
 
 /// Which keys mean what on the screen that's up.
@@ -78,6 +80,7 @@ const PAD_START: &str = "PadStart";
 impl Game {
     /// The NES buttons this frame's keys stand for.
     pub(crate) fn translate_keys(&mut self, keys: &Keys) -> u8 {
+        let unfocused = keys.unfocused;
         let mapping = self.mapping();
         // Keys held across a change of mapping wait to be released.
         if Some(mapping) != self.ui.last_mapping {
@@ -125,6 +128,11 @@ impl Game {
                     ("PadSouth", buttons::B),
                     (PAD_START, buttons::START),
                 ];
+                // Losing focus presses Start, released every other frame so the press lands
+                // even on frames the game doesn't look for it (line clears, entry delay).
+                if unfocused && self.joypads.held[0] & buttons::START == 0 {
+                    out |= buttons::START;
+                }
                 for k in &live {
                     for &(action, bit) in &bound {
                         if keys[action] == *k {

@@ -93,7 +93,7 @@ fn compare_with(name: &str, frames: usize, mut script: Script, options: Options)
         // The app's title menu reads keys: Start is Enter there.
         let mine = if menus && ram[0xC0] == 1 {
             let enter: Vec<String> = if buttons & 0x10 != 0 { vec!["Enter".into()] } else { vec![] };
-            ours.next_frame_keys(tetris_rs::Keys { held: enter.clone(), pressed: enter })
+            ours.next_frame_keys(tetris_rs::Keys { held: enter.clone(), pressed: enter, ..Default::default() })
         } else {
             ours.next_frame_with(buttons, pokes)
         };
