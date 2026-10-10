@@ -14,5 +14,8 @@ sha1_smol = "1"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 frontend = { path = "../frontend" }
 
+[build-dependencies]
+sha1_smol = "1"
+
 [dev-dependencies]
 recomp = { path = "../recomp" }

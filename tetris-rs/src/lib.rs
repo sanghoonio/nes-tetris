@@ -3,7 +3,7 @@
 //! The game's logic is rewritten routine by routine from the annotated disassembly, keeping the
 //! original's variables (`vars`) and hardware (`hw`) so that every routine can be checked against
 //! the static recompile on real game states. Data tables and graphics are read from the user's
-//! ROM (`rom`); nothing from it is embedded.
+//! ROM (`rom`); the source holds nothing from it.
 
 // A wait that isn't awaited would silently skip its frame.
 #![deny(unused_must_use)]

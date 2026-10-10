@@ -1,7 +1,7 @@
 //! The user's ROM: checked to be NES Tetris (USA), and read for data tables and graphics.
 //!
-//! Nothing from the ROM is embedded in this program. Tables are read at the addresses in
-//! `layout.rs`.
+//! Nothing from the ROM is in the source; the `tetris` binary embeds the ROM it was built with
+//! (`build.rs`). Tables are read at the addresses in `layout.rs`.
 
 use crate::layout;
 

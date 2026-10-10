@@ -2,12 +2,14 @@
 //!
 //!     cargo run --release -p tetris-rs --bin tetris [path/to/tetris.nes]
 //!
-//! The ROM (Tetris (USA)) defaults to $TETRIS_ROM, then tetris_nes/tetris.nes. It's checked by
-//! hash and read for the game's data and graphics; nothing from it is built into this program.
+//! Your ROM (Tetris (USA)) is built into this program (see `build.rs`), so it runs on its own,
+//! e.g. from the app bundle (`macos/bundle.sh`). A ROM path given here is used instead.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use tetris_rs::{Rom, Runner};
+
+/// The ROM this program was built with.
+const ROM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/tetris.nes"));
 
 struct Readable(Runner);
 
@@ -19,12 +21,10 @@ impl frontend::Game for Readable {
 }
 
 fn main() {
-    let path = std::env::args_os()
-        .nth(1)
-        .or_else(|| std::env::var_os("TETRIS_ROM"))
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tetris.nes"));
-    let file = std::fs::read(&path).unwrap_or_else(|e| panic!("can't read ROM {}: {e}", path.display()));
-    let rom = Arc::new(Rom::new(&file).unwrap_or_else(|e| panic!("{}: {e}", path.display())));
+    let file = match std::env::args_os().nth(1) {
+        Some(path) => std::fs::read(&path).unwrap_or_else(|e| panic!("can't read ROM {}: {e}", path.display())),
+        None => ROM.to_vec(),
+    };
+    let rom = Arc::new(Rom::new(&file).unwrap_or_else(|e| panic!("ROM: {e}")));
     frontend::run("Tetris", |rate| Readable(Runner::new(rom, Some(rate))));
 }

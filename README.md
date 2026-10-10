@@ -1,10 +1,15 @@
 # NES Tetris → Rust
 
-Two native ports of NES Tetris (USA), both needing your own ROM at run time (`tetris.nes` here, or
-pass a path). Nothing from the ROM is in this repository.
+Two native ports of NES Tetris (USA), both needing your own ROM (`tetris.nes` here). Nothing from
+the ROM is in this repository.
 
+    tetris-rs/macos/bundle.sh --install                    # Tetris.app in ~/Applications
     cargo run --release -p tetris-rs --bin tetris          # readable reimplementation
     cargo run --release -p recomp --bin tetris-recomp      # static recompile
+
+The readable game's binary embeds the ROM at build time (`tetris-rs/build.rs`, from `$TETRIS_ROM`
+or `tetris.nes`; the copy stays under the gitignored `target/`), so the app runs on its own. Without
+`--install` the app is left at `target/Tetris.app`. The recompile reads the ROM at run time.
 
 Keys: arrows, X = A (rotate clockwise), Z = B (anticlockwise), Enter = Start, Right Shift =
 Select, Escape = quit.
