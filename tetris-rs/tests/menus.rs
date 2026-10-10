@@ -202,6 +202,8 @@ fn level_counter_shows_the_true_level() {
     // The original shows 00 here (the bytes past `levelDisplayTable`).
     assert_eq!(cells(&show(35)), [0xFF, 3, 5]);
     assert_eq!(cells(&show(155)), [1, 5, 5]);
+    // Past 255 the level wraps to 0, and the hundreds goes.
+    assert_eq!(cells(&show(0)), [0xFF, 0, 0]);
 }
 
 /// Every level plays and draws from the ROM's data alone: none reads the original's code

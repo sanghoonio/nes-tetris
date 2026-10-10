@@ -55,8 +55,11 @@ impl Game {
         if one_player && self.vars.out_of_date_render_flags & RENDER_LEVEL != 0 {
             let level = self.vars.player1.level_number;
             // A third digit goes in the blank cell before the two, centring all three under
-            // "LEVEL".
-            self.ppu_addr(if level >= 100 { LEVEL - 1 } else { LEVEL });
+            // "LEVEL"; below 100 it's blanked (past 255 the level wraps to 0).
+            self.ppu_addr(LEVEL - 1);
+            if level < 100 {
+                self.ppu_data(TILE_BLANK);
+            }
             self.draw_level(level);
             self.update_palette_for_level();
             self.vars.out_of_date_render_flags &= !RENDER_LEVEL;

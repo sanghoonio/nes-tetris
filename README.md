@@ -4,7 +4,8 @@ The 1989 NES version of Tetris, rewritten from scratch as a native desktop game.
 like the original, down to the frame, with a few comforts added on top: proper keyboard
 controls, remappable keys, gamepad support, a settings screen and saved high scores. Two of
 the original's display glitches at very high levels are fixed: the level counter shows the
-real level past 29 (up to 255), and the colours keep cycling every 10 levels past 137.
+real level past 29, and the colours keep cycling every 10 levels past 137. As on the NES, the
+level wraps round to 0 after 255, back to level 0's speed.
 
 **You need your own copy of the game.** This project contains no Nintendo or Tetris code, graphics
 or music. When you build it, it reads them from a ROM file of NES Tetris (USA) that you provide.
