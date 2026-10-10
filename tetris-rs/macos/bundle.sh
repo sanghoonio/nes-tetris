@@ -10,8 +10,11 @@ cargo build --release -p tetris-rs --bin tetris
 
 app=target/Tetris.app
 rm -rf "$app"
-mkdir -p "$app/Contents/MacOS"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp target/release/tetris "$app/Contents/MacOS/tetris"
+# The icon: the red Z in the playfield's frame (icon.py).
+uv run --quiet --with pillow python3 tetris-rs/macos/icon.py target/icon --piece z
+iconutil -c icns target/icon/Tetris.iconset -o "$app/Contents/Resources/Tetris.icns"
 cat > "$app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -21,6 +24,7 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
     <key>CFBundleDisplayName</key><string>Tetris</string>
     <key>CFBundleIdentifier</key><string>local.tetris-nes.readable</string>
     <key>CFBundleExecutable</key><string>tetris</string>
+    <key>CFBundleIconFile</key><string>Tetris</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleVersion</key><string>1</string>
     <key>CFBundleShortVersionString</key><string>1.0</string>
