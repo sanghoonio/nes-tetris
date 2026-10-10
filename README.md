@@ -23,7 +23,7 @@ Not affiliated with or endorsed by Nintendo or The Tetris Company.
 
 1. Download this project:
 
-       git clone <this repository's URL> tetris_nes
+       git clone https://github.com/sanghoonio/tetris_nes.git
        cd tetris_nes
 
 2. Copy your ROM into the folder as `tetris.nes`.
