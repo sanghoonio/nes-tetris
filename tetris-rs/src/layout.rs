@@ -1254,3 +1254,44 @@ pub const UNREFERENCED_DATA5: u16 = 0xFF30;
 pub const MMC1_PRG: u16 = 0xFFF0;
 /// `LFFFF`
 pub const LFFFF: u16 = 0xFFFF;
+
+// ---- bulkCopyToPpu call sites ----
+
+/// `jsr bulkCopyToPpu` in `gameMode_legalScreen`, uploading `legal_screen_palette`.
+pub const GAME_MODE_LEGAL_SCREEN_COPY_LEGAL_SCREEN_PALETTE: u16 = 0x8217;
+/// `jsr bulkCopyToPpu` in `gameMode_legalScreen`, uploading `legal_screen_nametable`.
+pub const GAME_MODE_LEGAL_SCREEN_COPY_LEGAL_SCREEN_NAMETABLE: u16 = 0x821C;
+/// `jsr bulkCopyToPpu` in `gameMode_titleScreen`, uploading `menu_palette`.
+pub const GAME_MODE_TITLE_SCREEN_COPY_MENU_PALETTE: u16 = 0x826A;
+/// `jsr bulkCopyToPpu` in `gameMode_titleScreen`, uploading `title_screen_nametable`.
+pub const GAME_MODE_TITLE_SCREEN_COPY_TITLE_SCREEN_NAMETABLE: u16 = 0x826F;
+/// `jsr bulkCopyToPpu` in `gameMode_gameTypeMenu`, uploading `menu_palette`.
+pub const GAME_MODE_GAME_TYPE_MENU_COPY_MENU_PALETTE: u16 = 0x82E3;
+/// `jsr bulkCopyToPpu` in `gameMode_gameTypeMenu`, uploading `game_type_menu_nametable`.
+pub const GAME_MODE_GAME_TYPE_MENU_COPY_GAME_TYPE_MENU_NAMETABLE: u16 = 0x82E8;
+/// `jsr bulkCopyToPpu` in `gameMode_levelMenu`, uploading `menu_palette`.
+pub const GAME_MODE_LEVEL_MENU_COPY_MENU_PALETTE: u16 = 0x83F6;
+/// `jsr bulkCopyToPpu` in `gameMode_levelMenu`, uploading `level_menu_nametable`.
+pub const GAME_MODE_LEVEL_MENU_COPY_LEVEL_MENU_NAMETABLE: u16 = 0x83FB;
+/// `jsr bulkCopyToPpu` in `gameMode_levelMenu`, uploading `height_menu_nametablepalette_patch`.
+pub const GAME_MODE_LEVEL_MENU_COPY_HEIGHT_MENU_NAMETABLEPALETTE_PATCH: u16 = 0x8404;
+/// `jsr bulkCopyToPpu` in `gameModeState_initGameBackground`, uploading `game_palette`.
+pub const GAME_MODE_STATE_INIT_GAME_BACKGROUND_COPY_GAME_PALETTE: u16 = 0x8600;
+/// `jsr bulkCopyToPpu` in `gameModeState_initGameBackground`, uploading `game_nametable`.
+pub const GAME_MODE_STATE_INIT_GAME_BACKGROUND_COPY_GAME_NAMETABLE: u16 = 0x8605;
+/// `jsr bulkCopyToPpu` in `endingAnimationB`, uploading `type_b_lvl9_ending_nametable`.
+pub const ENDING_ANIMATION_B_COPY_TYPE_B_LVL9_ENDING_NAMETABLE: u16 = 0x9E80;
+/// `jsr bulkCopyToPpu` in `endingAnimationB`, uploading `type_b_ending_nametable`.
+pub const ENDING_ANIMATION_B_COPY_TYPE_B_ENDING_NAMETABLE: u16 = 0x9E9F;
+/// `jsr bulkCopyToPpu` in `endingAnimationB`, uploading `ending_palette`.
+pub const ENDING_ANIMATION_B_COPY_ENDING_PALETTE: u16 = 0x9EA4;
+/// `jsr bulkCopyToPpu` in `showHighScores_real`, uploading `high_scores_nametable`.
+pub const SHOW_HIGH_SCORES_REAL_COPY_HIGH_SCORES_NAMETABLE: u16 = 0x9FFB;
+/// `jsr bulkCopyToPpu` in `highScoreEntryScreen`, uploading `menu_palette`.
+pub const HIGH_SCORE_ENTRY_SCREEN_COPY_MENU_PALETTE: u16 = 0xA222;
+/// `jsr bulkCopyToPpu` in `highScoreEntryScreen`, uploading `enter_high_score_nametable`.
+pub const HIGH_SCORE_ENTRY_SCREEN_COPY_ENTER_HIGH_SCORE_NAMETABLE: u16 = 0xA227;
+/// `jsr bulkCopyToPpu` in `endingAnimationA`, uploading `type_a_ending_nametable`.
+pub const ENDING_ANIMATION_A_COPY_TYPE_A_ENDING_NAMETABLE: u16 = 0xA936;
+/// `jsr bulkCopyToPpu` in `endingAnimationA`, uploading `ending_palette`.
+pub const ENDING_ANIMATION_A_COPY_ENDING_PALETTE: u16 = 0xA93B;

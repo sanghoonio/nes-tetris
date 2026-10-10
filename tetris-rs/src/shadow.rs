@@ -25,6 +25,8 @@ pub struct Regs {
     pub carry: bool,
     /// The two bytes after the call site, for routines that take an inline argument there.
     pub inline_word: u16,
+    /// Address of the `jsr` that made the call.
+    pub call_site: u16,
 }
 
 pub struct Routine {
@@ -48,6 +50,7 @@ pub fn all() -> Vec<&'static Routine> {
         crate::controls::SHADOW,
         crate::vram::SHADOW,
         crate::ending::SHADOW,
+        crate::endgame::SHADOW,
         crate::high_scores::SHADOW,
         crate::menus::SHADOW,
         crate::input::SHADOW,

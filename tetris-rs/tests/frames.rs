@@ -1,0 +1,116 @@
+//! Whole-game oracle: the readable game against the recompile, frame by frame.
+//!
+//! Both run the same scripted input. At every frame boundary (the original's NMI) every named
+//! variable must match, and the visible picture (rows 8..232; see recomp's oracle for why the
+//! overscan rows are left out).
+//!
+//!     cargo test -p tetris-rs --test frames -- --nocapture
+
+use recomp::scripts::{self, Coverage, Script};
+use recomp::stepper::Stepper;
+use std::sync::Arc;
+use tetris_rs::vars::{Player, SCRATCH};
+use tetris_rs::{Rom, Runner, Vars};
+
+fn rom_bytes() -> Vec<u8> {
+    let path = std::env::var_os("TETRIS_ROM")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tetris.nes"));
+    std::fs::read(&path).unwrap_or_else(|e| panic!("ROM {}: {e}", path.display()))
+}
+
+/// Working variables the original reuses as scratch in many routines. The shadow oracle already
+/// lists them as scratch per routine, and the rewrites don't reproduce leftover values in them.
+/// They aren't compared here either: if a leftover value ever matters, it shows up as a
+/// difference in some other variable (as the demo's zero-page input did).
+const FRAME_SCRATCH: &[&str] = &[
+    "general_counter",
+    "general_counter2",
+    "general_counter3",
+    "general_counter4",
+    "general_counter5",
+    "original_y",
+    "selecting_level_or_height",
+];
+
+/// Named variables that differ between two RAM images, as "name: ours .. original ..".
+fn var_diffs(ours: &[u8; 0x800], theirs: &[u8; 0x800]) -> Vec<String> {
+    let mut out = Vec::new();
+    for &(name, addr, size) in Vars::LAYOUT {
+        if SCRATCH.contains(&name) || FRAME_SCRATCH.contains(&name) {
+            continue;
+        }
+        if ["active", "player1", "player2"].contains(&name) {
+            for &(field, off, fsize) in Player::LAYOUT {
+                let r = addr + off..addr + off + fsize;
+                if ours[r.clone()] != theirs[r.clone()] {
+                    out.push(format!("{name}.{field}: ours {:02X?} original {:02X?}", &ours[r.clone()], &theirs[r]));
+                }
+            }
+            continue;
+        }
+        let r = addr..addr + size;
+        if ours[r.clone()] != theirs[r.clone()] {
+            let firsts: Vec<String> = r
+                .clone()
+                .filter(|&a| ours[a] != theirs[a])
+                .take(4)
+                .map(|a| format!("[{}] ours {:02X} original {:02X}", a - addr, ours[a], theirs[a]))
+                .collect();
+            out.push(format!("{name}: {}", firsts.join(", ")));
+        }
+    }
+    out
+}
+
+fn compare(name: &str, frames: usize, mut script: Script) -> Coverage {
+    let rom = rom_bytes();
+    let mut ours = Runner::new(Arc::new(Rom::new(&rom).expect("ROM")), None);
+    let mut original = Stepper::new(&rom);
+    let mut cov = Coverage::default();
+    let mut ram = [0u8; 0x800];
+    for f in 0..frames {
+        let (buttons, pokes) = script(f, &ram);
+        let theirs = original.next_frame_with(buttons, true, pokes.clone());
+        let mine = ours.next_frame_with(buttons, pokes);
+        let diffs = var_diffs(&mine.ram, &theirs.ram);
+        assert!(diffs.is_empty(), "{name}: frame {f} (game mode {}, state {}):\n  {}",
+            theirs.ram[0xC0], theirs.ram[0xA7], diffs.join("\n  "));
+        let px = theirs.pixels.as_ref().unwrap();
+        let bad: Vec<usize> = (8 * 256..232 * 256).filter(|&i| px[i] != mine.pixels[i]).collect();
+        if let Some(&first) = bad.first() {
+            panic!("{name}: frame {f} picture differs in {} pixels, first at ({}, {}): ours {:02X} original {:02X}",
+                bad.len(), first % 256, first / 256, mine.pixels[first], px[first]);
+        }
+        cov.observe(&ram, &theirs.ram);
+        ram = theirs.ram;
+    }
+    println!("{name}: {cov:?}");
+    cov
+}
+
+#[test]
+fn attract() {
+    compare("attract", 6000, scripts::attract());
+}
+
+#[test]
+fn random_play() {
+    let cov = compare("random-1", 12000, scripts::random_play(1));
+    assert!(cov.games >= 3, "{cov:?}");
+}
+
+#[test]
+fn level_29() {
+    compare("level-29", 6000, scripts::level_29(29));
+}
+
+#[test]
+fn line_clears() {
+    compare("line-clears", 15000, scripts::line_clears(3));
+}
+
+#[test]
+fn endings() {
+    compare("endings", 40000, scripts::endings(11));
+}

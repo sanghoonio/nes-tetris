@@ -43,6 +43,7 @@ fn game_from_machine(rom: &Arc<Rom>, m: &Machine, apu: ApuLog) -> Game {
         mmc1: Mmc1 { control: m.mmc1_control, chr0: m.mmc1_chr0, chr1: m.mmc1_chr1, prg: m.mmc1_prg, shift: m.mmc1_shift, count: m.mmc1_count },
         joypads: Joypads { held: m.buttons, shift, strobe },
         apu: Box::new(apu),
+        ..Game::new(rom.clone(), Box::new(ApuLog::default()))
     }
 }
 
@@ -151,7 +152,7 @@ fn run_script(name: &str, frames: usize, mut script: Script, routines: &[&'stati
             let ret_addr = u16::from_le_bytes([b.ram[0x100 + ((sp + 1) & 0xFF)], b.ram[0x100 + ((sp + 2) & 0xFF)]]);
             let inline = |a: u16| if a >= 0x8000 { b.prg[(a - 0x8000) as usize] } else { 0 };
             let inline_word = u16::from_le_bytes([inline(ret_addr.wrapping_add(1)), inline(ret_addr.wrapping_add(2))]);
-            let ret = (routine.run)(&mut game, Regs { a: b.a, x: b.x, y: b.y, carry: b.c, inline_word });
+            let ret = (routine.run)(&mut game, Regs { a: b.a, x: b.x, y: b.y, carry: b.c, inline_word, call_site: ret_addr.wrapping_sub(2) });
             let apu = log.0.lock().unwrap().clone();
             let diffs = diff(routine, &game, ret, call.after, &apu, &call.apu_writes);
             let mut tallies = t.lock().unwrap();

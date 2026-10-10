@@ -311,7 +311,7 @@ ram_struct! {
 
 /// Scratch the oracle doesn't compare by default: values left over in these after a routine
 /// returns aren't part of its effect.
-pub const SCRATCH: &[&str] = &["tmp1", "tmp2", "tmp3", "tmp_bulk_copy_to_ppu_return_addr", "audio_tmp"];
+pub const SCRATCH: &[&str] = &["tmp1", "tmp2", "tmp3", "audio_tmp"];
 
 impl Vars {
     pub fn from_ram(ram: &[u8; 0x800]) -> Self {

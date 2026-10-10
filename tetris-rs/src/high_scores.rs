@@ -30,7 +30,7 @@ impl Game {
         if self.vars.number_of_players != 1 {
             return;
         }
-        self.bulk_copy_to_ppu(layout::HIGH_SCORES_NAMETABLE);
+        self.bulk_copy_to_ppu(layout::SHOW_HIGH_SCORES_REAL_COPY_HIGH_SCORES_NAMETABLE);
         let mut entry = if self.vars.game_type != 0 { TABLE_B_FIRST_ENTRY } else { 0 };
         loop {
             self.ppu_addr(self.high_score_ppu_addr(entry));

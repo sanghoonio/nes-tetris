@@ -21,6 +21,33 @@ def const_name(label):
     return re.sub(r"\W", "_", s).upper()
 
 
+def bulk_copy_sites():
+    """A constant per `jsr bulkCopyToPpu`, named for the routine it's in and the data it uploads.
+
+    The original passes the data address inline after the call; the reimplementation names each
+    upload by its call site, as the return address it leaves in RAM is observable."""
+    from gen import Program
+    with open(os.path.join(REPO, "tetris.nes"), "rb") as f:
+        prog = Program(f.read(), os.path.join(REPO, "disasm", "tetris.dbg"))
+    target = next(a for a, n in prog.labels.items() if n == "bulkCopyToPpu")
+    data_names = {a: n for a, n in prog.labels.items()}
+    globals_sorted = sorted((a, n) for a, n in prog.labels.items() if not n.startswith("@"))
+    out = ["", "// ---- bulkCopyToPpu call sites ----", ""]
+    seen = set()
+    for a in sorted(prog.source):
+        if prog.byte(a) != 0x20 or prog.word(a + 1) != target:
+            continue
+        routine = max((g for g in globals_sorted if g[0] <= a), key=lambda g: g[0])[1]
+        data = prog.word(a + 3)
+        name = f"{const_name(routine)}_COPY_{const_name(data_names.get(data, f'DATA_{data:04X}'))}"
+        while name in seen:
+            name += "_2"
+        seen.add(name)
+        out.append(f"/// `jsr bulkCopyToPpu` in `{routine}`, uploading `{data_names.get(data, hex(data))}`.")
+        out.append(f"pub const {name}: u16 = 0x{a:04X};")
+    return out
+
+
 def main():
     dbg = parse_dbg(os.path.join(REPO, "disasm", "tetris.dbg"))
     seen = {}
@@ -40,6 +67,7 @@ def main():
     for name, (a, label) in sorted(seen.items(), key=lambda kv: kv[1][0]):
         out.append(f"/// `{label}`")
         out.append(f"pub const {name}: u16 = 0x{a:04X};")
+    out += bulk_copy_sites()
     path = os.path.join(REPO, "tetris-rs", "src", "layout.rs")
     with open(path, "w") as f:
         f.write("\n".join(out) + "\n")

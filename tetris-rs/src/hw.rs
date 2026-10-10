@@ -10,6 +10,11 @@ use crate::Game;
 /// Where APU register writes go: the synthesiser when playing, a log in tests.
 pub trait ApuSink: Send {
     fn write(&mut self, addr: u16, value: u8);
+
+    /// The frame is over: the audio it produced, if this sink makes any.
+    fn end_frame(&mut self) -> Vec<f32> {
+        Vec::new()
+    }
 }
 
 impl ApuSink for apu::Apu {

@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use crate::hw::{ApuSink, Joypads, Mmc1};
-use crate::{Game, Rom, Vars};
+use crate::{layout, Game, Rom, Vars};
 
 pub const WIDTH: usize = ppu::WIDTH;
 pub const HEIGHT: usize = ppu::HEIGHT;
@@ -130,6 +130,7 @@ impl Game {
 
     /// `render`: the video work for the current screen.
     fn render(&mut self) {
+        self.switch_target(layout::RENDER + 5, self.vars.render_mode);
         match self.vars.render_mode {
             0 => self.render_mode_legal_and_title_screens(),
             1 => self.render_mode_menu_screens(),

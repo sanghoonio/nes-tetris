@@ -5,6 +5,7 @@
 //! the static recompile on real game states. Data tables and graphics are read from the user's
 //! ROM (`rom`); nothing from it is embedded.
 
+pub mod frame;
 pub mod hw;
 pub mod layout;
 pub mod rom;
@@ -12,6 +13,8 @@ pub mod shadow;
 pub mod vars;
 
 mod controls;
+mod endgame;
+mod flow;
 mod ending;
 mod high_scores;
 mod input;
@@ -28,6 +31,7 @@ mod vram;
 
 use std::sync::Arc;
 
+pub use frame::{FrameOut, Runner};
 pub use hw::{ApuSink, Joypads, Mmc1};
 pub use rom::Rom;
 pub use vars::Vars;
@@ -53,4 +57,6 @@ pub struct Game {
     pub mmc1: Mmc1,
     pub joypads: Joypads,
     pub apu: Box<dyn ApuSink>,
+    /// The frame exchange with the frontend, when running under `frame::Runner`.
+    pub(crate) io: Option<frame::FrameIo>,
 }

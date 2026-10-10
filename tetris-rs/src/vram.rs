@@ -18,9 +18,13 @@ const PALETTE_PAGE: u8 = 0x3F;
 const CTRL_INCREMENT_32: u8 = 0x04;
 
 impl Game {
-    /// `bulkCopyToPpu`: play the command stream at `data` (given inline after the call in the
-    /// original).
-    pub fn bulk_copy_to_ppu(&mut self, data: u16) {
+    /// `bulkCopyToPpu`: play a command stream. The original passes the stream's address inline,
+    /// right after its `jsr`, so each upload is named here by that call site (`layout::*_COPY_*`)
+    /// and the address is read from the ROM. The original also leaves the call's return address
+    /// in `tmpBulkCopyToPpuReturnAddr`, where the attract demo later reads it as input.
+    pub fn bulk_copy_to_ppu(&mut self, call_site: u16) {
+        self.vars.tmp_bulk_copy_to_ppu_return_addr.0 = call_site + 2;
+        let data = self.rom.word(call_site + 3);
         self.copy_to_ppu(data);
     }
 
@@ -101,7 +105,7 @@ pub const SHADOW: &[Routine] = &[Routine {
     name: "bulkCopyToPpu",
     addr: layout::BULK_COPY_TO_PPU,
     run: |g, r| {
-        g.bulk_copy_to_ppu(r.inline_word);
+        g.bulk_copy_to_ppu(r.call_site);
         Ret::Unit
     },
     scratch: &[],
