@@ -16,11 +16,20 @@ pub enum Ret {
     A(u8),
 }
 
+/// The CPU registers at the call, for routines that take arguments in them.
+#[derive(Clone, Copy, Debug)]
+pub struct Regs {
+    pub a: u8,
+    pub x: u8,
+    pub y: u8,
+    pub carry: bool,
+}
+
 pub struct Routine {
     /// The original's label.
     pub name: &'static str,
     pub addr: u16,
-    pub run: fn(&mut Game) -> Ret,
+    pub run: fn(&mut Game, Regs) -> Ret,
     /// Named variables this routine uses as scratch, beyond `vars::SCRATCH`: whatever it leaves
     /// in them isn't compared.
     pub scratch: &'static [&'static str],

@@ -13,7 +13,7 @@ use recomp::scripts::{self, Script};
 use recomp::stepper::Stepper;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
-use tetris_rs::shadow::{Ret, Routine};
+use tetris_rs::shadow::{Regs, Ret, Routine};
 use tetris_rs::vars::{Player, RamField, SCRATCH};
 use tetris_rs::{ApuSink, Game, Joypads, Mmc1, Rom, Vars};
 
@@ -145,7 +145,8 @@ fn run_script(name: &str, frames: usize, mut script: Script, routines: &[&'stati
             let routine = by_addr[&call.addr];
             let log = ApuLog::default();
             let mut game = game_from_machine(&rom, &call.before, log.clone());
-            let ret = (routine.run)(&mut game);
+            let b = &call.before;
+            let ret = (routine.run)(&mut game, Regs { a: b.a, x: b.x, y: b.y, carry: b.c });
             let apu = log.0.lock().unwrap().clone();
             let diffs = diff(routine, &game, ret, call.after, &apu, &call.apu_writes);
             let mut tallies = t.lock().unwrap();

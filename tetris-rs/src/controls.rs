@@ -207,13 +207,13 @@ pub const SHADOW: &[Routine] = &[
     Routine {
         name: "isPositionValid",
         addr: layout::IS_POSITION_VALID,
-        run: |g| Ret::Zero(g.is_position_valid()),
+        run: |g, _| Ret::Zero(g.is_position_valid()),
         scratch: POSITION_SCRATCH,
     },
     Routine {
         name: "shift_tetrimino",
         addr: layout::SHIFT_TETRIMINO,
-        run: |g| {
+        run: |g, _| {
             g.shift_tetrimino();
             Ret::Unit
         },
@@ -222,7 +222,7 @@ pub const SHADOW: &[Routine] = &[
     Routine {
         name: "rotate_tetrimino",
         addr: layout::ROTATE_TETRIMINO,
-        run: |g| {
+        run: |g, _| {
             g.rotate_tetrimino();
             Ret::Unit
         },
@@ -231,7 +231,7 @@ pub const SHADOW: &[Routine] = &[
     Routine {
         name: "drop_tetrimino",
         addr: layout::DROP_TETRIMINO,
-        run: |g| {
+        run: |g, _| {
             g.drop_tetrimino();
             Ret::Unit
         },
@@ -240,7 +240,7 @@ pub const SHADOW: &[Routine] = &[
     Routine {
         name: "updatePlayfield",
         addr: layout::UPDATE_PLAYFIELD,
-        run: |g| {
+        run: |g, _| {
             g.update_playfield();
             Ret::Unit
         },
@@ -249,7 +249,7 @@ pub const SHADOW: &[Routine] = &[
     Routine {
         name: "playState_playerControlsActiveTetrimino",
         addr: layout::PLAY_STATE_PLAYER_CONTROLS_ACTIVE_TETRIMINO,
-        run: |g| {
+        run: |g, _| {
             g.player_controls_active_tetrimino();
             Ret::Unit
         },

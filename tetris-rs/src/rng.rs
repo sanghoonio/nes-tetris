@@ -22,7 +22,7 @@ impl Game {
 pub const SHADOW: &[Routine] = &[Routine {
     name: "generateNextPseudorandomNumber",
     addr: layout::GENERATE_NEXT_PSEUDORANDOM_NUMBER,
-    run: |g| {
+    run: |g, _| {
         g.step_rng();
         Ret::Unit
     },
