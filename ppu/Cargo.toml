@@ -1,0 +1,8 @@
+[package]
+name = "ppu"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "NES PPU model (registers, VRAM, timing, renderer), shared by the NES Tetris ports"
+
+[dependencies]

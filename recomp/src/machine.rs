@@ -3,7 +3,7 @@
 //! Timing is per instruction, not per bus cycle: an instruction's cycles are added after it runs.
 //! That's enough for Tetris, which waits for NMI every frame and never races the PPU mid-frame.
 
-use crate::ppu::Ppu;
+use ppu::Ppu;
 
 pub const PRG_SIZE: usize = 0x8000;
 pub const CHR_SIZE: usize = 0x4000;
@@ -62,6 +62,12 @@ pub struct Machine {
     pub on_nmi: Option<Box<dyn FnMut(&mut Machine) + Send>>,
     /// Addresses the fallback interpreter had to run, for reporting.
     pub fallback_log: Vec<u16>,
+
+    /// Shadow mode (see `crate::shadow`): routines whose calls are reported to `shadow`.
+    pub watch: Box<[u64; 1024]>,
+    pub shadow: Option<Box<dyn FnMut(crate::shadow::Call) + Send>>,
+    /// APU writes made since logging was switched on (`Some`).
+    pub apu_log: Option<Vec<(u16, u8)>>,
 }
 
 impl Machine {
@@ -109,7 +115,66 @@ impl Machine {
             ret_to: 0,
             on_nmi: None,
             fallback_log: Vec::new(),
+            watch: Box::new([0; 1024]),
+            shadow: None,
+            apu_log: None,
         }
+    }
+
+    /// A copy of the whole machine state, without hooks (for shadow comparisons).
+    pub fn fork(&self) -> Machine {
+        Machine {
+            a: self.a,
+            x: self.x,
+            y: self.y,
+            sp: self.sp,
+            c: self.c,
+            z: self.z,
+            i: self.i,
+            d: self.d,
+            v: self.v,
+            n: self.n,
+            ram: self.ram,
+            prg: self.prg.clone(),
+            prg_ram: self.prg_ram,
+            ppu: self.ppu.clone(),
+            apu_regs: self.apu_regs,
+            apu: self.apu.clone(),
+            mmc1_shift: self.mmc1_shift,
+            mmc1_count: self.mmc1_count,
+            mmc1_control: self.mmc1_control,
+            mmc1_chr0: self.mmc1_chr0,
+            mmc1_chr1: self.mmc1_chr1,
+            mmc1_prg: self.mmc1_prg,
+            buttons: self.buttons,
+            joy_shift: self.joy_shift,
+            joy_strobe: self.joy_strobe,
+            cycles: self.cycles,
+            extra_cycles: self.extra_cycles,
+            nmi_pending: self.nmi_pending,
+            nmi_delay: self.nmi_delay,
+            ret_to: self.ret_to,
+            on_nmi: None,
+            fallback_log: Vec::new(),
+            watch: Box::new([0; 1024]),
+            shadow: None,
+            apu_log: None,
+        }
+    }
+
+    /// Report calls to the routine at `addr` to the shadow handler.
+    pub fn watch(&mut self, addr: u16) {
+        self.watch[addr as usize >> 6] |= 1 << (addr & 63);
+    }
+
+    #[inline(always)]
+    pub fn watched(&self, addr: u16) -> bool {
+        self.watch[addr as usize >> 6] & (1 << (addr & 63)) != 0
+    }
+
+    /// Joypad shift registers and strobe, for code that reads the pads.
+    pub fn joypad_state(&self) -> ([u8; 2], bool) {
+        (self.joy_shift, self.joy_strobe)
     }
 
     pub fn vector(&self, addr: u16) -> u16 {
@@ -178,6 +243,9 @@ impl Machine {
             }
             0x4000..=0x4017 => {
                 self.apu_regs[addr as usize - 0x4000] = v;
+                if let Some(log) = &mut self.apu_log {
+                    log.push((addr, v));
+                }
                 if let Some(apu) = &mut self.apu {
                     apu.write(addr, v);
                 }

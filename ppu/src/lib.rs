@@ -15,6 +15,7 @@ const FRAME_DOTS: u32 = 262 * DOTS_PER_LINE;
 const LINE_RENDER_DOT: u32 = 256;
 const RENDER_END: u32 = (HEIGHT as u32 - 1) * DOTS_PER_LINE + LINE_RENDER_DOT + 1;
 
+#[derive(Clone)]
 pub struct Ppu {
     pub chr: Vec<u8>,
     pub vram: [u8; 0x800],
@@ -225,7 +226,14 @@ impl Ppu {
         self.chr[bank * 0x1000 + (addr as usize & 0xFFF)]
     }
 
-    /// Draw scanline `y` from the current state into `self.frame`.
+    /// Draw the whole frame from the current state, for callers without dot timing.
+    pub fn render_frame(&mut self) {
+        for y in 0..HEIGHT {
+            self.render_line(y);
+        }
+    }
+
+    /// Draw scanline `y` from the current state into `self.frame_buf`.
     fn render_line(&mut self, y: usize) {
         let mut row = [0u8; WIDTH];
         let mut backdrop = self.palette[0];

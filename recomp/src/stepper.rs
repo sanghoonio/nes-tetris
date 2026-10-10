@@ -4,7 +4,7 @@
 //! at every NMI entry (the start of vblank), where it receives the next frame's buttons.
 
 use crate::machine::Machine;
-use crate::ppu::{HEIGHT, WIDTH};
+use ppu::{HEIGHT, WIDTH};
 
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::thread::JoinHandle;
@@ -46,6 +46,12 @@ impl Stepper {
 
     /// As [`Stepper::new`], synthesising audio at `sample_rate` Hz if given.
     pub fn with_audio(rom: &[u8], sample_rate: Option<u32>) -> Self {
+        Self::with_setup(rom, sample_rate, |_| {})
+    }
+
+    /// As [`Stepper::with_audio`], running `setup` on the machine before power-on (to install
+    /// shadow-mode watches, for instance).
+    pub fn with_setup(rom: &[u8], sample_rate: Option<u32>, setup: impl FnOnce(&mut Machine) + Send + 'static) -> Self {
         let rom = rom.to_vec();
         let (req_tx, req_rx) = sync_channel::<Request>(0);
         let (snap_tx, snap_rx) = sync_channel::<Snapshot>(0);
@@ -55,6 +61,7 @@ impl Stepper {
             .spawn(move || {
                 let mut m = Machine::new(&rom);
                 m.apu = sample_rate.map(apu::Apu::new);
+                setup(&mut m);
                 let Ok(first) = req_rx.recv() else { return };
                 m.buttons[0] = first.buttons;
                 for &(a, v) in &first.pokes {

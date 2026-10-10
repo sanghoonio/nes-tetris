@@ -7,8 +7,9 @@
 pub mod cpu;
 pub mod interp;
 pub mod machine;
-pub mod ppu;
+pub use ppu;
 pub mod scripts;
+pub mod shadow;
 pub mod stepper;
 
 #[path = "../generated/tetris.rs"]

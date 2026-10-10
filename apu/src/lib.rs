@@ -345,6 +345,7 @@ impl Dmc {
     }
 }
 
+#[derive(Clone)]
 pub struct Apu {
     pulse: [Pulse; 2],
     triangle: Triangle,
