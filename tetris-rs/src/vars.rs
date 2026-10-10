@@ -279,7 +279,10 @@ ram_struct! {
         music_chan_prog_loop_counter: [u8; 4] = 0x06BC,
         music_staging_sq1_sweep: [u8; 2] = 0x06C0,
         music_chan_note: [u8; 4] = 0x06C3,
-        music_chan_inhibit: [u8; 3] = 0x06C8,
+        /// Per sound-effect slot (0..=4): nonzero while that slot's effect has the channel and
+        /// the music must stay off it. The music engine reads entries 1..=3 for its three
+        /// channels (the disassembly's `musicChanInhibit` starts at entry 1).
+        channel_inhibit: [u8; 5] = 0x06C7,
         music_track_dec: u8 = 0x06CC,
         music_chan_vol_frame_counter: [u8; 4] = 0x06CD,
         music_chan_lo_frame_counter: [u8; 4] = 0x06D1,

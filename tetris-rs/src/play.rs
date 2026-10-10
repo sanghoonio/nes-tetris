@@ -337,9 +337,6 @@ impl Game {
     pub fn set_music_track(&mut self, track: u8) {
         self.vars.music_track = if self.vars.game_mode == MODE_DEMO { MUSIC_SILENCE } else { track };
     }
-
-    /// `updateAudio2`, until the sound engine is rewritten: not yet implemented.
-    pub fn update_audio2(&mut self) {}
 }
 
 /// Working variables of the routines above, which leave nothing a later routine reads.

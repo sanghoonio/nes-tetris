@@ -39,6 +39,10 @@ pub struct Routine {
 pub fn all() -> Vec<&'static Routine> {
     [
         crate::rng::SHADOW,
+        crate::sound::SHADOW,
+        crate::sound::effects_slot1::SHADOW,
+        crate::sound::effects_other::SHADOW,
+        crate::sound::music::SHADOW,
         crate::controls::SHADOW,
         crate::input::SHADOW,
         crate::play::SHADOW,

@@ -16,6 +16,7 @@ mod input;
 mod play;
 mod player;
 mod rng;
+mod sound;
 mod spawn;
 mod sprites;
 mod system;
