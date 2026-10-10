@@ -15,6 +15,7 @@ mod controls;
 mod input;
 mod play;
 mod player;
+mod render;
 mod rng;
 mod sound;
 mod spawn;
