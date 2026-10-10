@@ -44,15 +44,6 @@ impl Game {
         })
     }
 
-    /// A byte of the active player's playfield page (`playfieldAddr` points at one of the two).
-    fn playfield_cell(&self, index: u8) -> u8 {
-        if self.vars.playfield_addr.0 == 0x0500 {
-            self.vars.playfield_for_second_player[index as usize]
-        } else {
-            self.vars.playfield[index as usize]
-        }
-    }
-
     /// `shift_tetrimino`: move left/right. A fresh press moves at once; holding repeats after
     /// DAS_RESET frames, then every DAS_RESET - DAS_DELAY frames. Down blocks shifting. A blocked
     /// move charges DAS fully so the next frame retries.

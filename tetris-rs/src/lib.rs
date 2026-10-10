@@ -13,6 +13,7 @@ pub mod vars;
 
 mod controls;
 mod input;
+mod play;
 mod player;
 mod rng;
 mod spawn;

@@ -41,6 +41,7 @@ pub fn all() -> Vec<&'static Routine> {
         crate::rng::SHADOW,
         crate::controls::SHADOW,
         crate::input::SHADOW,
+        crate::play::SHADOW,
         crate::player::SHADOW,
         crate::spawn::SHADOW,
         crate::sprites::SHADOW,
