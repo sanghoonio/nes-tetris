@@ -11,7 +11,9 @@ The readable game's binary embeds the ROM at build time (`tetris-rs/build.rs`, f
 or `tetris.nes`; the copy stays under the gitignored `target/`), so the app runs on its own. Without
 `--install` the app is left at `target/Tetris.app`. The recompile reads the ROM at run time.
 
-The app's title screen has START / SETTINGS / EXIT (no attract demo). SETTINGS has three pages
+The app's title screen has START / SETTINGS / EXIT (no attract demo); Start (Enter) skips the
+legal screen at once, Back (Escape) works as B on the game-type and level menus, and Back on
+the pause screen quits the game to the title. SETTINGS has three pages
 in the game's own style: CONTROLS (every key, Back included), GAME (DAS delay and repeat,
 Left+Right handling, the Down+Left+Right slowdown, hard drop on Up, ghost piece, saving high
 scores) and SYSTEM (volume, fullscreen, pixel scale, reset). Every rule's default is the

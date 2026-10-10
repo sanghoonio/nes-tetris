@@ -19,8 +19,12 @@ const ARROW_TILE: u8 = 0x27;
 const FLIP_H: u8 = 0x40;
 const BLANK_TILE: u8 = 0xFF;
 
-/// The title menu, centred under the logo where `PUSH START` was (row 20, columns 7..16).
-const TITLE_ITEMS: [(&str, u8, u8); 3] = [("START", 18, 9), ("SETTINGS", 20, 8), ("EXIT", 22, 10)];
+/// "PAUSE" is five sprites at x 112..152, y 119; the hint goes two rows under it.
+const PAUSE_CENTRE_X: u8 = 132;
+const PAUSE_HINT_Y: u8 = 135;
+
+/// The title menu, left-aligned under the logo where `PUSH START` was (row 20, columns 7..16).
+const TITLE_ITEMS: [(&str, u8, u8); 3] = [("START", 18, 8), ("SETTINGS", 20, 8), ("EXIT", 22, 8)];
 const PUSH_START: (u8, u8, usize) = (20, 7, 10);
 
 /// The settings panel: the music box's frame around rows 2..=27, columns 2..=29.
@@ -271,7 +275,7 @@ impl Game {
                     self.vars.sfx_init[1] = SFX_MENU_OPTION;
                     capturing = false;
                 }
-            } else if self.ui.key.as_deref() == Some(self.options.config.keys[BACK].as_str()) || pressed == buttons::B {
+            } else if self.back_pressed() || pressed == buttons::B {
                 self.vars.sfx_init[1] = SFX_MENU_SCREEN;
                 self.ui.title_cursor = 1;
                 return;
@@ -335,6 +339,38 @@ impl Game {
     fn queue_page(&mut self, page: usize) {
         for (row, text) in self.page_lines(page) {
             self.queue_text(row, INNER.0, &text);
+        }
+    }
+
+    /// The legal screen's first wait (255 frames), which Start skips here; the original's
+    /// can't be skipped until it's over.
+    pub(crate) async fn skippable_legal_wait(&mut self, frames: u8) {
+        self.vars.sleep_counter = frames;
+        while self.vars.sleep_counter != 0 {
+            self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
+            if self.vars.newly_pressed_buttons_player1 == buttons::START {
+                break;
+            }
+        }
+    }
+
+    /// The key bound to Back was pressed this frame.
+    pub(crate) fn back_pressed(&self) -> bool {
+        self.ui.key.as_deref() == Some(self.options.config.keys[BACK].as_str())
+    }
+
+    /// Under "PAUSE": which key quits the game, as two centred lines of sprites in the same
+    /// font (the game's sprites and background share the play screen's tiles).
+    pub(crate) fn stage_pause_hint(&mut self) {
+        let label = key_label(&self.options.config.keys[BACK]);
+        for (text, y) in [(label.as_str(), PAUSE_HINT_Y), ("TO QUIT", PAUSE_HINT_Y + 10)] {
+            let tiles = self.text_tiles(text);
+            let x0 = PAUSE_CENTRE_X - 4 * tiles.len() as u8;
+            for (i, t) in tiles.into_iter().enumerate() {
+                if t != BLANK_TILE {
+                    self.stage_sprite(y, t, 0, x0 + 8 * i as u8);
+                }
+            }
         }
     }
 

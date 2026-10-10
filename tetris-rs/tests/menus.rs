@@ -93,3 +93,43 @@ fn settings_change_and_back() {
     let out = tap(&mut game, buttons::START, None, 10);
     assert_eq!(mode(&out), 1, "SETTINGS again, not START");
 }
+
+#[test]
+fn enter_skips_the_legal_screen() {
+    let mut game = app();
+    tap(&mut game, 0, None, 10);
+    let out = tap(&mut game, buttons::START, Some("Enter"), 10);
+    assert_eq!(mode(&out), 1, "at the title");
+}
+
+#[test]
+fn back_leaves_the_game_type_and_level_menus() {
+    let mut game = at_title();
+    tap(&mut game, buttons::START, None, 10); // game type menu
+    tap(&mut game, buttons::START, None, 10); // level menu
+    let out = tap(&mut game, 0, Some("Escape"), 10);
+    assert_eq!(mode(&out), 2, "back to the game type menu");
+    let out = tap(&mut game, 0, Some("Escape"), 10);
+    assert_eq!(mode(&out), 1, "back to the title");
+}
+
+#[test]
+fn quit_from_pause() {
+    let mut game = at_title();
+    tap(&mut game, buttons::START, None, 10);
+    tap(&mut game, buttons::START, None, 10);
+    tap(&mut game, buttons::START, None, 120); // playing
+    assert_eq!(mode(&game.next_frame(0)), 4);
+    let out = tap(&mut game, buttons::START, None, 10); // paused
+    assert!(out.oam.chunks(4).any(|s| s[1] == 0x19), "PAUSE shown");
+    // The hint: "ESC" / "TO QUIT" in sprites.
+    let tiles: Vec<u8> = out.oam.chunks(4).filter(|s| s[0] < 0xEF).map(|s| s[1]).collect();
+    for t in [0x0E, 0x1C, 0x0C, 0x1D, 0x18, 0x1A, 0x1E, 0x12] {
+        assert!(tiles.contains(&t), "hint tile {t:02X} missing from {tiles:02X?}");
+    }
+    let out = tap(&mut game, 0, Some("Escape"), 20);
+    assert_eq!(mode(&out), 1, "quit to the title");
+    // And the title menu works as before.
+    let out = tap(&mut game, buttons::START, None, 10);
+    assert_eq!(mode(&out), 2);
+}

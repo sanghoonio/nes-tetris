@@ -187,7 +187,11 @@ impl Game {
         self.load_screen(CHR_TITLE_MENU, layout::GAME_MODE_LEGAL_SCREEN_COPY_LEGAL_SCREEN_PALETTE, layout::GAME_MODE_LEGAL_SCREEN_COPY_LEGAL_SCREEN_NAMETABLE).await;
         self.show_screen().await;
         self.memset_page(0x00, 0x02, 0x02);
-        self.sleep_for_a_vblanks(LEGAL_SLEEP_TIME).await;
+        if self.options.menus {
+            self.skippable_legal_wait(LEGAL_SLEEP_TIME).await;
+        } else {
+            self.sleep_for_a_vblanks(LEGAL_SLEEP_TIME).await;
+        }
         self.vars.general_counter = LEGAL_SLEEP_TIME;
         let mut a = 0xFF;
         loop {
@@ -685,28 +689,41 @@ impl Game {
             0
         } else if self.vars.player1.play_state == 0x0A {
             0x0A
+        } else if self.pause().await {
+            // Quit from the pause screen (the app's menus): back to the title, as Start leaves
+            // the demo.
+            self.vars.game_mode = MODE_TITLE;
+            1
         } else {
-            self.pause().await;
             RENDER_PLAY
         };
         self.vars.game_mode_state = self.vars.game_mode_state.wrapping_add(1);
         a
     }
 
-    /// The pause screen: playfield hidden, "PAUSE" shown, the pause jingle, until Start.
-    async fn pause(&mut self) {
+    /// The pause screen: playfield hidden, "PAUSE" shown, the pause jingle, until Start. With
+    /// the app's menus, Back quits the game instead (returns true), and a hint says so.
+    async fn pause(&mut self) -> bool {
         self.vars.music_staging_noise_hi = PAUSED;
         self.vars.render_mode = RENDER_LEGAL_AND_TITLE;
         self.update_audio_and_wait_for_nmi().await;
         // Background off, sprites on (not recorded in currentPpuMask).
         self.ppu_mask(0x16);
         self.memset_page(0xFF, 0x02, 0x02);
+        let mut quit = false;
         loop {
             self.vars.sprite_x_offset = 0x70;
             self.vars.sprite_y_offset = 0x77;
             self.vars.sprite_index_in_oam_content_lookup = 0x05;
             self.load_sprite_into_oam_staging();
+            if self.options.menus {
+                self.stage_pause_hint();
+            }
             if self.vars.newly_pressed_buttons_player1 == buttons::START {
+                break;
+            }
+            if self.options.menus && self.back_pressed() {
+                quit = true;
                 break;
             }
             self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
@@ -715,6 +732,7 @@ impl Game {
         self.vars.music_staging_noise_hi = 0;
         self.vars.player1.vram_row = 0;
         self.vars.render_mode = RENDER_PLAY;
+        quit
     }
 
     /// `playState_updateGameOverCurtain`: lower the curtain a row every 4 frames; then show the

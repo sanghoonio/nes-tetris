@@ -178,6 +178,10 @@ impl Game {
         let input = io.input.borrow_mut().take().expect("runner left no input");
         self.joypads.held[0] = self.left_right(input.buttons);
         self.ui.key = input.key;
+        // Back works as B (the original's way back) on the game-type and level menus.
+        if self.options.menus && matches!(self.vars.game_mode, 2 | 3) && self.back_pressed() {
+            self.joypads.held[0] |= crate::buttons::B;
+        }
         if !input.pokes.is_empty() {
             self.vars.with_ram(|ram| {
                 for &(a, v) in &input.pokes {
