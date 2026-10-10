@@ -36,15 +36,12 @@ impl ApuSink for ApuLog {
 
 fn game_from_machine(rom: &Arc<Rom>, m: &Machine, apu: ApuLog) -> Game {
     let (shift, strobe) = m.joypad_state();
-    Game {
-        rom: rom.clone(),
-        vars: Vars::from_ram(&m.ram),
-        ppu: m.ppu.clone(),
-        mmc1: Mmc1 { control: m.mmc1_control, chr0: m.mmc1_chr0, chr1: m.mmc1_chr1, prg: m.mmc1_prg, shift: m.mmc1_shift, count: m.mmc1_count },
-        joypads: Joypads { held: m.buttons, shift, strobe },
-        apu: Box::new(apu),
-        ..Game::new(rom.clone(), Box::new(ApuLog::default()))
-    }
+    let mut g = Game::new(rom.clone(), Box::new(apu));
+    g.vars = Vars::from_ram(&m.ram);
+    g.ppu = m.ppu.clone();
+    g.mmc1 = Mmc1 { control: m.mmc1_control, chr0: m.mmc1_chr0, chr1: m.mmc1_chr1, prg: m.mmc1_prg, shift: m.mmc1_shift, count: m.mmc1_count };
+    g.joypads = Joypads { held: m.buttons, shift, strobe };
+    g
 }
 
 /// Differences between the readable result and the original's, as readable lines.
