@@ -187,6 +187,7 @@ fn shadow() {
         ("random-2", 12000, scripts::random_play(0x9E3779B97F4A7C15)),
         ("level-29", 6000, scripts::level_29(29)),
         ("line-clears", 15000, scripts::line_clears(3)),
+        ("endings", 40000, scripts::endings(11)),
     ];
     std::thread::scope(|s| {
         for (name, frames, script) in runs {

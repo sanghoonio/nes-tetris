@@ -254,9 +254,10 @@ impl Game {
 }
 
 pub const SHADOW: &[Routine] = &[
+    // The game reaches updateAudio with `jmp` from updateAudio_jmp, so that's the entry called.
     Routine {
-        name: "updateAudio",
-        addr: layout::UPDATE_AUDIO,
+        name: "updateAudio_jmp",
+        addr: layout::UPDATE_AUDIO_JMP,
         run: |g, _| {
             g.update_audio();
             Ret::Unit
