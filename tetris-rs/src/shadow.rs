@@ -28,5 +28,13 @@ pub struct Routine {
 
 /// Every reimplemented routine.
 pub fn all() -> Vec<&'static Routine> {
-    [crate::rng::SHADOW, crate::controls::SHADOW].into_iter().flatten().collect()
+    [
+        crate::rng::SHADOW,
+        crate::controls::SHADOW,
+        crate::input::SHADOW,
+        crate::player::SHADOW,
+        crate::spawn::SHADOW,
+        crate::sprites::SHADOW,
+        crate::system::SHADOW,
+    ].into_iter().flatten().collect()
 }

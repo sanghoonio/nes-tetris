@@ -12,7 +12,12 @@ pub mod shadow;
 pub mod vars;
 
 mod controls;
+mod input;
+mod player;
 mod rng;
+mod spawn;
+mod sprites;
+mod system;
 
 use std::sync::Arc;
 
