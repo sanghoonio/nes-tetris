@@ -35,6 +35,8 @@ pub struct Machine {
     pub prg_ram: [u8; 0x2000],
     pub ppu: Ppu,
     pub apu_regs: [u8; 0x18],
+    /// Sound synthesis, if enabled (the oracle runs without it).
+    pub apu: Option<apu::Apu>,
 
     /// MMC1 shift register and registers.
     pub mmc1_shift: u8,
@@ -90,6 +92,7 @@ impl Machine {
             prg_ram: [0; 0x2000],
             ppu: Ppu::new(chr),
             apu_regs: [0; 0x18],
+            apu: None,
             mmc1_shift: 0,
             mmc1_count: 0,
             mmc1_control: 0x0C,
@@ -117,6 +120,10 @@ impl Machine {
     #[inline(always)]
     pub fn tick(&mut self, cycles: u32) {
         self.cycles += cycles as u64;
+        if let Some(apu) = &mut self.apu {
+            let prg = &self.prg;
+            apu.clock(cycles, &mut |a| if a >= 0x8000 { prg[a as usize - 0x8000] } else { 0 });
+        }
         if let Some(dots_ago) = self.ppu.advance(cycles * 3) {
             self.nmi_pending = true;
             self.nmi_delay = dots_ago < 3;
@@ -169,7 +176,12 @@ impl Machine {
                     self.joy_shift = self.buttons;
                 }
             }
-            0x4000..=0x4017 => self.apu_regs[addr as usize - 0x4000] = v,
+            0x4000..=0x4017 => {
+                self.apu_regs[addr as usize - 0x4000] = v;
+                if let Some(apu) = &mut self.apu {
+                    apu.write(addr, v);
+                }
+            }
             0x4018..=0x5FFF => {}
             0x6000..=0x7FFF => self.prg_ram[addr as usize - 0x6000] = v,
             0x8000..=0xFFFF => self.mmc1_write(addr, v),

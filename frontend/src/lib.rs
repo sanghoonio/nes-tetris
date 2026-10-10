@@ -1,0 +1,240 @@
+//! Window, keyboard and audio runner shared by the NES Tetris ports.
+//!
+//! A port implements [`Game`]: given the buttons held this frame, produce the frame (NES palette
+//! indices) and the audio generated during it. [`run`] owns the window and drives the game at the
+//! NES's 60.0988 Hz.
+//!
+//! Keys: arrows = D-pad, X = A (rotate clockwise), Z = B (rotate anticlockwise), Enter = Start,
+//! Right Shift = Select, Escape = quit.
+
+use std::collections::VecDeque;
+use std::num::NonZeroU32;
+use std::rc::Rc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use winit::application::ApplicationHandler;
+use winit::event::{ElementState, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::keyboard::{KeyCode, PhysicalKey};
+use winit::window::{Window, WindowId};
+
+pub const WIDTH: usize = 256;
+pub const HEIGHT: usize = 240;
+const SCALE: u32 = 3;
+const FRAME_TIME: Duration = Duration::from_nanos(16_639_267); // 1 / 60.0988 Hz
+
+/// Joypad bits, first-shifted-out first (the layout the game reads).
+pub const BTN_A: u8 = 0x80;
+pub const BTN_B: u8 = 0x40;
+pub const BTN_SELECT: u8 = 0x20;
+pub const BTN_START: u8 = 0x10;
+pub const BTN_UP: u8 = 0x08;
+pub const BTN_DOWN: u8 = 0x04;
+pub const BTN_LEFT: u8 = 0x02;
+pub const BTN_RIGHT: u8 = 0x01;
+
+pub trait Game {
+    /// Run one frame holding `buttons`; return the finished frame and its audio (mono, [-1, 1]).
+    fn frame(&mut self, buttons: u8) -> (Box<[u8; WIDTH * HEIGHT]>, Vec<f32>);
+}
+
+/// The 2C02 palette as 0x00RRGGBB (the common nesdev palette, as also used by tetanes-core).
+#[rustfmt::skip]
+pub const PALETTE: [u32; 64] = [
+    0x545454, 0x001E74, 0x081090, 0x300088, 0x440064, 0x5C0030, 0x540400, 0x3C1800,
+    0x202A00, 0x083A00, 0x004000, 0x003C00, 0x00323C, 0x000000, 0x000000, 0x000000,
+    0x989698, 0x084CC4, 0x3032EC, 0x5C1EE4, 0x8814B0, 0xA01464, 0x982220, 0x783C00,
+    0x545A00, 0x287200, 0x087C00, 0x007628, 0x006678, 0x000000, 0x000000, 0x000000,
+    0xECEEEC, 0x4C9AEC, 0x787CEC, 0xB062EC, 0xE454EC, 0xEC58B4, 0xEC6A64, 0xD48820,
+    0xA0AA00, 0x74C400, 0x4CD020, 0x38CC6C, 0x38B4CC, 0x3C3C3C, 0x000000, 0x000000,
+    0xECEEEC, 0xA8CCEC, 0xBCBCEC, 0xD4B2EC, 0xECAEEC, 0xECAED4, 0xECB4B0, 0xE4C490,
+    0xCCD278, 0xB4DE78, 0xA8E290, 0x98E2B4, 0xA0D6E4, 0xA0A2A0, 0x000000, 0x000000,
+];
+
+/// Open the window and run. `make_game` is given the audio output's sample rate.
+pub fn run<G: Game + 'static>(title: &str, make_game: impl FnOnce(u32) -> G) {
+    let audio = Audio::start();
+    let game = make_game(audio.sample_rate);
+    let event_loop = EventLoop::new().expect("event loop");
+    let mut app = App {
+        title: title.to_string(),
+        window: None,
+        surface: None,
+        game,
+        buttons: 0,
+        next_frame: Instant::now(),
+        frame: Box::new([0x0F; WIDTH * HEIGHT]),
+        audio,
+    };
+    event_loop.run_app(&mut app).expect("event loop");
+}
+
+struct App<G> {
+    title: String,
+    window: Option<Rc<Window>>,
+    surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
+    game: G,
+    buttons: u8,
+    next_frame: Instant,
+    frame: Box<[u8; WIDTH * HEIGHT]>,
+    audio: Audio,
+}
+
+impl<G: Game> ApplicationHandler for App<G> {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_some() {
+            return;
+        }
+        let attrs = Window::default_attributes()
+            .with_title(&self.title)
+            .with_inner_size(winit::dpi::LogicalSize::new(WIDTH as u32 * SCALE, HEIGHT as u32 * SCALE));
+        let window = Rc::new(event_loop.create_window(attrs).expect("window"));
+        let context = softbuffer::Context::new(window.clone()).expect("softbuffer context");
+        self.surface = Some(softbuffer::Surface::new(&context, window.clone()).expect("surface"));
+        self.window = Some(window);
+        self.next_frame = Instant::now();
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::KeyboardInput { event, .. } => {
+                let PhysicalKey::Code(code) = event.physical_key else { return };
+                if code == KeyCode::Escape {
+                    event_loop.exit();
+                    return;
+                }
+                let bit = match code {
+                    KeyCode::ArrowUp => BTN_UP,
+                    KeyCode::ArrowDown => BTN_DOWN,
+                    KeyCode::ArrowLeft => BTN_LEFT,
+                    KeyCode::ArrowRight => BTN_RIGHT,
+                    KeyCode::KeyX => BTN_A,
+                    KeyCode::KeyZ => BTN_B,
+                    KeyCode::Enter => BTN_START,
+                    KeyCode::ShiftRight => BTN_SELECT,
+                    _ => return,
+                };
+                match event.state {
+                    ElementState::Pressed => self.buttons |= bit,
+                    ElementState::Released => self.buttons &= !bit,
+                }
+            }
+            WindowEvent::RedrawRequested => self.draw(),
+            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let now = Instant::now();
+        if now >= self.next_frame {
+            // Catch up at most a few frames after a stall rather than fast-forwarding.
+            if now - self.next_frame > FRAME_TIME * 4 {
+                self.next_frame = now;
+            }
+            while self.next_frame <= now {
+                let (frame, samples) = self.game.frame(self.buttons);
+                self.frame = frame;
+                self.audio.push(&samples);
+                self.next_frame += FRAME_TIME;
+            }
+            if let Some(w) = &self.window {
+                w.request_redraw();
+            }
+        }
+        event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame));
+    }
+}
+
+impl<G> App<G> {
+    fn draw(&mut self) {
+        let (Some(window), Some(surface)) = (&self.window, &mut self.surface) else { return };
+        let size = window.inner_size();
+        let (Some(w), Some(h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) else {
+            return;
+        };
+        surface.resize(w, h).expect("resize");
+        let mut buf = surface.buffer_mut().expect("buffer");
+        let (w, h) = (size.width as usize, size.height as usize);
+        // Integer-free nearest-neighbour scale to the window, letterboxed to keep the aspect.
+        let scale = (w as f32 / WIDTH as f32).min(h as f32 / HEIGHT as f32);
+        let (ow, oh) = ((WIDTH as f32 * scale) as usize, (HEIGHT as f32 * scale) as usize);
+        let (x0, y0) = ((w - ow) / 2, (h - oh) / 2);
+        buf.fill(0);
+        for y in 0..oh {
+            let sy = (y as f32 / scale) as usize;
+            let src = &self.frame[sy.min(HEIGHT - 1) * WIDTH..][..WIDTH];
+            let dst = &mut buf[(y0 + y) * w + x0..][..ow];
+            for (x, px) in dst.iter_mut().enumerate() {
+                let sx = ((x as f32 / scale) as usize).min(WIDTH - 1);
+                *px = PALETTE[(src[sx] & 0x3F) as usize];
+            }
+        }
+        buf.present().expect("present");
+    }
+}
+
+/// Audio output fed from a small queue; underruns play silence.
+struct Audio {
+    sample_rate: u32,
+    queue: Arc<Mutex<VecDeque<f32>>>,
+    _stream: Option<cpal::Stream>,
+}
+
+impl Audio {
+    fn start() -> Self {
+        let queue = Arc::new(Mutex::new(VecDeque::new()));
+        let host = cpal::default_host();
+        let Some(device) = host.default_output_device() else {
+            eprintln!("no audio output device; running silent");
+            return Self { sample_rate: 44100, queue, _stream: None };
+        };
+        let config: cpal::StreamConfig = match device.default_output_config() {
+            Ok(c) => c.into(),
+            Err(e) => {
+                eprintln!("audio config: {e}; running silent");
+                return Self { sample_rate: 44100, queue, _stream: None };
+            }
+        };
+        let channels = config.channels as usize;
+        let sample_rate = config.sample_rate as u32;
+        let q = queue.clone();
+        let stream = device.build_output_stream(
+            config,
+            move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                let mut q = q.lock().unwrap();
+                for frame in data.chunks_mut(channels) {
+                    let s = q.pop_front().unwrap_or(0.0);
+                    frame.fill(s);
+                }
+            },
+            |e| eprintln!("audio: {e}"),
+            None,
+        );
+        match stream {
+            Ok(s) => {
+                if let Err(e) = s.play() {
+                    eprintln!("audio play: {e}");
+                }
+                Self { sample_rate, queue, _stream: Some(s) }
+            }
+            Err(e) => {
+                eprintln!("audio stream: {e}; running silent");
+                Self { sample_rate, queue, _stream: None }
+            }
+        }
+    }
+
+    fn push(&self, samples: &[f32]) {
+        let mut q = self.queue.lock().unwrap();
+        q.extend(samples);
+        // Keep latency under ~100 ms if the game runs ahead of the device.
+        let max = self.sample_rate as usize / 10;
+        if q.len() > max {
+            let excess = q.len() - max;
+            q.drain(..excess);
+        }
+    }
+}

@@ -1,0 +1,11 @@
+[package]
+name = "frontend"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Window, keyboard and audio runner shared by the NES Tetris ports"
+
+[dependencies]
+winit = "0.30"
+softbuffer = "0.4"
+cpal = "0.18"

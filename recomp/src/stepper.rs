@@ -20,6 +20,8 @@ pub struct Snapshot {
     pub apu_regs: [u8; 0x18],
     /// Addresses the fallback interpreter ran since power-on.
     pub fallback_log: Vec<u16>,
+    /// Audio generated since the previous snapshot (mono, [-1, 1]), if audio is enabled.
+    pub samples: Vec<f32>,
 }
 
 struct Request {
@@ -39,6 +41,11 @@ struct Stop;
 
 impl Stepper {
     pub fn new(rom: &[u8]) -> Self {
+        Self::with_audio(rom, None)
+    }
+
+    /// As [`Stepper::new`], synthesising audio at `sample_rate` Hz if given.
+    pub fn with_audio(rom: &[u8], sample_rate: Option<u32>) -> Self {
         let rom = rom.to_vec();
         let (req_tx, req_rx) = sync_channel::<Request>(0);
         let (snap_tx, snap_rx) = sync_channel::<Snapshot>(0);
@@ -47,6 +54,7 @@ impl Stepper {
             .stack_size(64 << 20)
             .spawn(move || {
                 let mut m = Machine::new(&rom);
+                m.apu = sample_rate.map(apu::Apu::new);
                 let Ok(first) = req_rx.recv() else { return };
                 m.buttons[0] = first.buttons;
                 for &(a, v) in &first.pokes {
@@ -62,6 +70,7 @@ impl Stepper {
                         pixels,
                         apu_regs: m.apu_regs,
                         fallback_log: m.fallback_log.clone(),
+                        samples: m.apu.as_mut().map(|a| a.take_samples()).unwrap_or_default(),
                     };
                     if snap_tx.send(snap).is_err() {
                         std::panic::resume_unwind(Box::new(Stop));

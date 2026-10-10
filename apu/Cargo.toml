@@ -1,0 +1,8 @@
+[package]
+name = "apu"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "NES 2A03 APU synthesis (NTSC), shared by the recompile and the reimplementation"
+
+[dependencies]
