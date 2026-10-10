@@ -24,5 +24,5 @@ fn main() {
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tetris.nes"));
     let rom = std::fs::read(&rom_path)
         .unwrap_or_else(|e| panic!("can't read ROM {}: {e}", rom_path.display()));
-    frontend::run("Tetris (recompiled)", |rate| Recompiled(Stepper::with_audio(&rom, Some(rate))));
+    frontend::run("Tetris (recompiled)", frontend::Options::default(), |rate| Recompiled(Stepper::with_audio(&rom, Some(rate))));
 }

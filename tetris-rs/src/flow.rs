@@ -43,7 +43,7 @@ const PAUSED: u8 = 0x05;
 /// `outOfDateRenderFlags`: everything.
 const RENDER_ALL: u8 = 0x40 | 0x04 | 0x02 | 0x01;
 /// The marker the high score table is checked against at power-on (warm boots keep scores).
-const INIT_MAGIC: [u8; 5] = [0x12, 0x34, 0x56, 0x78, 0x9A];
+pub(crate) const INIT_MAGIC: [u8; 5] = [0x12, 0x34, 0x56, 0x78, 0x9A];
 
 impl Game {
     /// `reset`: power-on. Silence the PPU, wait for it to warm up (two vblanks, which this
@@ -74,6 +74,9 @@ impl Game {
         self.vars.with_ram(|ram| ram[..0x700].fill(0));
         // The loop's pointer ends at page $FF (tmp2) with tmp1 = 0.
         self.vars.tmp2 = 0xFF;
+        if let Some(saved) = self.saved.take() {
+            saved.store(&mut self.vars);
+        }
         if self.vars.init_magic != INIT_MAGIC {
             let mut i = 0;
             loop {

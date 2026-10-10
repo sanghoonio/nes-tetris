@@ -11,8 +11,12 @@ The readable game's binary embeds the ROM at build time (`tetris-rs/build.rs`, f
 or `tetris.nes`; the copy stays under the gitignored `target/`), so the app runs on its own. Without
 `--install` the app is left at `target/Tetris.app`. The recompile reads the ROM at run time.
 
-Keys: arrows, X = A (rotate clockwise), Z = B (anticlockwise), Enter = Start, Right Shift =
-Select, Escape = quit.
+Keys, volume, the last game's choices and the high scores are kept in
+`~/Library/Application Support/Tetris/settings.toml`, written on first launch and saved as
+they change. Escape is Back, not quit; quit with Cmd+Q or by closing the window.
+
+Default keys: arrows, X = A (rotate clockwise), Z = B (anticlockwise), Enter = Start, Right
+Shift = Select, Escape = Back.
 
 ## What's here
 

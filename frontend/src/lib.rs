@@ -4,8 +4,9 @@
 //! indices) and the audio generated during it. [`run`] owns the window and drives the game at the
 //! NES's 60.0988 Hz.
 //!
-//! Keys: arrows = D-pad, X = A (rotate clockwise), Z = B (rotate anticlockwise), Enter = Start,
-//! Right Shift = Select, Escape = quit.
+//! Keys come from [`Bindings`]; the defaults are arrows = D-pad, X = A (rotate clockwise),
+//! Z = B (rotate anticlockwise), Enter = Start, Right Shift = Select, Escape = Back. Quit with
+//! Cmd+Q or by closing the window.
 
 use std::collections::VecDeque;
 use std::num::NonZeroU32;
@@ -17,7 +18,8 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::keyboard::{KeyCode, PhysicalKey};
+use winit::keyboard::PhysicalKey;
+pub use winit::keyboard::KeyCode;
 use winit::window::{Window, WindowId};
 
 pub const WIDTH: usize = 256;
@@ -34,6 +36,70 @@ pub const BTN_UP: u8 = 0x08;
 pub const BTN_DOWN: u8 = 0x04;
 pub const BTN_LEFT: u8 = 0x02;
 pub const BTN_RIGHT: u8 = 0x01;
+
+/// The key for each NES button, and for Back (the settings screen's way out).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct Bindings {
+    pub up: KeyCode,
+    pub down: KeyCode,
+    pub left: KeyCode,
+    pub right: KeyCode,
+    pub a: KeyCode,
+    pub b: KeyCode,
+    pub start: KeyCode,
+    pub select: KeyCode,
+    pub back: KeyCode,
+}
+
+impl Default for Bindings {
+    fn default() -> Self {
+        Bindings {
+            up: KeyCode::ArrowUp,
+            down: KeyCode::ArrowDown,
+            left: KeyCode::ArrowLeft,
+            right: KeyCode::ArrowRight,
+            a: KeyCode::KeyX,
+            b: KeyCode::KeyZ,
+            start: KeyCode::Enter,
+            select: KeyCode::ShiftRight,
+            back: KeyCode::Escape,
+        }
+    }
+}
+
+impl Bindings {
+    /// The joypad bit `key` is bound to, if any.
+    fn button(&self, key: KeyCode) -> Option<u8> {
+        [
+            (self.up, BTN_UP),
+            (self.down, BTN_DOWN),
+            (self.left, BTN_LEFT),
+            (self.right, BTN_RIGHT),
+            (self.a, BTN_A),
+            (self.b, BTN_B),
+            (self.start, BTN_START),
+            (self.select, BTN_SELECT),
+        ]
+        .into_iter()
+        .find(|&(k, _)| k == key)
+        .map(|(_, bit)| bit)
+    }
+}
+
+/// How the window plays the game.
+#[derive(Clone, Debug)]
+pub struct Options {
+    pub bindings: Bindings,
+    /// Output volume, 0.0..=1.0.
+    pub volume: f32,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Options { bindings: Bindings::default(), volume: 1.0 }
+    }
+}
 
 pub trait Game {
     /// Run one frame holding `buttons`; return the finished frame and its audio (mono, [-1, 1]).
@@ -54,8 +120,9 @@ pub const PALETTE: [u32; 64] = [
 ];
 
 /// Open the window and run. `make_game` is given the audio output's sample rate.
-pub fn run<G: Game + 'static>(title: &str, make_game: impl FnOnce(u32) -> G) {
-    let audio = Audio::start();
+pub fn run<G: Game + 'static>(title: &str, options: Options, make_game: impl FnOnce(u32) -> G) {
+    let mut audio = Audio::start();
+    audio.volume = options.volume.clamp(0.0, 1.0);
     let game = make_game(audio.sample_rate);
     let event_loop = EventLoop::new().expect("event loop");
     let mut app = App {
@@ -67,6 +134,7 @@ pub fn run<G: Game + 'static>(title: &str, make_game: impl FnOnce(u32) -> G) {
         next_frame: Instant::now(),
         frame: Box::new([0x0F; WIDTH * HEIGHT]),
         audio,
+        bindings: options.bindings,
     };
     event_loop.run_app(&mut app).expect("event loop");
 }
@@ -80,6 +148,7 @@ struct App<G> {
     next_frame: Instant,
     frame: Box<[u8; WIDTH * HEIGHT]>,
     audio: Audio,
+    bindings: Bindings,
 }
 
 impl<G: Game> ApplicationHandler for App<G> {
@@ -102,21 +171,7 @@ impl<G: Game> ApplicationHandler for App<G> {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::KeyboardInput { event, .. } => {
                 let PhysicalKey::Code(code) = event.physical_key else { return };
-                if code == KeyCode::Escape {
-                    event_loop.exit();
-                    return;
-                }
-                let bit = match code {
-                    KeyCode::ArrowUp => BTN_UP,
-                    KeyCode::ArrowDown => BTN_DOWN,
-                    KeyCode::ArrowLeft => BTN_LEFT,
-                    KeyCode::ArrowRight => BTN_RIGHT,
-                    KeyCode::KeyX => BTN_A,
-                    KeyCode::KeyZ => BTN_B,
-                    KeyCode::Enter => BTN_START,
-                    KeyCode::ShiftRight => BTN_SELECT,
-                    _ => return,
-                };
+                let Some(bit) = self.bindings.button(code) else { return };
                 match event.state {
                     ElementState::Pressed => self.buttons |= bit,
                     ElementState::Released => self.buttons &= !bit,
@@ -179,6 +234,7 @@ impl<G> App<G> {
 /// Audio output fed from a small queue; underruns play silence.
 struct Audio {
     sample_rate: u32,
+    volume: f32,
     queue: Arc<Mutex<VecDeque<f32>>>,
     _stream: Option<cpal::Stream>,
 }
@@ -189,13 +245,13 @@ impl Audio {
         let host = cpal::default_host();
         let Some(device) = host.default_output_device() else {
             eprintln!("no audio output device; running silent");
-            return Self { sample_rate: 44100, queue, _stream: None };
+            return Self { sample_rate: 44100, volume: 1.0, queue, _stream: None };
         };
         let config: cpal::StreamConfig = match device.default_output_config() {
             Ok(c) => c.into(),
             Err(e) => {
                 eprintln!("audio config: {e}; running silent");
-                return Self { sample_rate: 44100, queue, _stream: None };
+                return Self { sample_rate: 44100, volume: 1.0, queue, _stream: None };
             }
         };
         let channels = config.channels as usize;
@@ -218,18 +274,18 @@ impl Audio {
                 if let Err(e) = s.play() {
                     eprintln!("audio play: {e}");
                 }
-                Self { sample_rate, queue, _stream: Some(s) }
+                Self { sample_rate, volume: 1.0, queue, _stream: Some(s) }
             }
             Err(e) => {
                 eprintln!("audio stream: {e}; running silent");
-                Self { sample_rate, queue, _stream: None }
+                Self { sample_rate, volume: 1.0, queue, _stream: None }
             }
         }
     }
 
     fn push(&self, samples: &[f32]) {
         let mut q = self.queue.lock().unwrap();
-        q.extend(samples);
+        q.extend(samples.iter().map(|s| s * self.volume));
         // Keep latency under ~100 ms if the game runs ahead of the device.
         let max = self.sample_rate as usize / 10;
         if q.len() > max {

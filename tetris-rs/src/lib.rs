@@ -26,6 +26,7 @@ mod play;
 mod player;
 mod render;
 mod rng;
+pub mod saved;
 mod sound;
 mod spawn;
 mod sprites;
@@ -37,6 +38,7 @@ use std::sync::Arc;
 pub use frame::{FrameOut, Runner};
 pub use hw::{ApuSink, Joypads, Mmc1};
 pub use rom::Rom;
+pub use saved::Saved;
 pub use vars::Vars;
 
 /// Joypad bits as the game sees them (first shifted out = A).
@@ -62,4 +64,6 @@ pub struct Game {
     pub apu: Box<dyn ApuSink>,
     /// The frame exchange with the frontend, when running under `frame::Runner`.
     pub(crate) io: Option<std::rc::Rc<frame::FrameIo>>,
+    /// Saved state to restore at power-on (`initRam`); none for the original game.
+    pub saved: Option<Saved>,
 }

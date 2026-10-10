@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
 
 use crate::hw::{ApuSink, Joypads, Mmc1};
-use crate::{layout, Game, Rom, Vars};
+use crate::{layout, Game, Rom, Saved, Vars};
 
 pub const WIDTH: usize = ppu::WIDTH;
 pub const HEIGHT: usize = ppu::HEIGHT;
@@ -115,6 +115,7 @@ impl Game {
             joypads: Joypads::default(),
             apu,
             io: None,
+            saved: None,
         };
         g.ppu.chr_banks = g.mmc1.chr_banks();
         g.ppu.mirroring = g.mmc1.control & 3;
@@ -244,6 +245,11 @@ pub struct Runner {
 impl Runner {
     /// Power on with `rom`, synthesising audio at `sample_rate` Hz if given.
     pub fn new(rom: Arc<Rom>, sample_rate: Option<u32>) -> Self {
+        Self::with_saved(rom, sample_rate, None)
+    }
+
+    /// As [`Runner::new`], restoring `saved` at power-on.
+    pub fn with_saved(rom: Arc<Rom>, sample_rate: Option<u32>, saved: Option<Saved>) -> Self {
         let io = Rc::new(FrameIo::default());
         let apu: Box<dyn ApuSink> = match sample_rate {
             Some(rate) => Box::new(Synth { apu: apu::Apu::new(rate), rom: rom.clone(), odd_frame: false }),
@@ -251,6 +257,7 @@ impl Runner {
         };
         let mut game = Game::new(rom, apu);
         game.io = Some(io.clone());
+        game.saved = saved;
         let game = Box::pin(async move {
             // The first frame's buttons are held from power-on.
             let first = game.io.clone().unwrap();
