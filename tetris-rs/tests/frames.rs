@@ -155,12 +155,15 @@ fn line_clears() {
 }
 
 /// The app's title menu, START chosen at once, then random play: everything after the title is
-/// the original game.
+/// the original game. Nothing is pressed on the legal screen, which the app lets Start skip
+/// early and the original doesn't.
 #[test]
 fn title_menu() {
     let mut play = scripts::random_play(2);
     let script: Script = Box::new(move |f, ram| {
-        if ram[0xC0] == 1 {
+        if ram[0xC0] == 0 {
+            (0, vec![])
+        } else if ram[0xC0] == 1 {
             (if f % 20 == 0 { 0x10 } else { 0 }, vec![])
         } else {
             play(f, ram)
