@@ -1,0 +1,15 @@
+[package]
+name = "tetris-rs"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "NES Tetris reimplemented in readable Rust, verified against the recompile"
+
+[dependencies]
+apu = { path = "../apu" }
+ppu = { path = "../ppu" }
+frontend = { path = "../frontend" }
+sha1_smol = "1"
+
+[dev-dependencies]
+recomp = { path = "../recomp" }

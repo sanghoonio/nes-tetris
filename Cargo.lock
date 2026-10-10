@@ -1560,6 +1560,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha1_smol"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
+
+[[package]]
 name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1712,6 +1718,17 @@ dependencies = [
  "tracing",
  "web-sys",
  "web-time",
+]
+
+[[package]]
+name = "tetris-rs"
+version = "0.1.0"
+dependencies = [
+ "apu",
+ "frontend",
+ "ppu",
+ "recomp",
+ "sha1_smol",
 ]
 
 [[package]]
