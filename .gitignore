@@ -1,0 +1,15 @@
+# ROM and anything derived from it
+*.nes
+*.chr
+disasm/
+recomp/generated/
+work/*/excerpt.asm
+
+# Rust
+target/
+
+# macOS / editors
+.DS_Store
+.vscode/
+.idea/
+*.swp
