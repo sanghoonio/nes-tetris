@@ -314,4 +314,14 @@ impl Vars {
     pub fn to_ram(&self, ram: &mut [u8; 0x800]) {
         self.store(ram);
     }
+
+    /// Operate on RAM by address, for the few routines that work on raw memory (page fills).
+    /// Bytes no variable covers don't survive the round trip.
+    pub fn with_ram<R>(&mut self, f: impl FnOnce(&mut [u8; 0x800]) -> R) -> R {
+        let mut ram = [0u8; 0x800];
+        self.store(&mut ram);
+        let r = f(&mut ram);
+        *self = Self::load(&ram);
+        r
+    }
 }

@@ -24,13 +24,16 @@ impl ApuSink for Vec<(u16, u8)> {
     }
 }
 
-/// MMC1 registers (the serial shift register is always empty between the game's writes).
+/// MMC1 registers. The game sets them with five serial writes each, which leaves the shift
+/// register empty; `shift`/`count` only matter for stray writes (`Game::mapper_write`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Mmc1 {
     pub control: u8,
     pub chr0: u8,
     pub chr1: u8,
     pub prg: u8,
+    pub shift: u8,
+    pub count: u8,
 }
 
 impl Mmc1 {
@@ -135,6 +138,35 @@ impl Game {
 
     pub fn set_chr_bank1(&mut self, v: u8) {
         self.mmc1.chr1 = v & 0x1F;
+        self.sync_chr();
+    }
+
+    pub fn set_prg_bank(&mut self, v: u8) {
+        self.mmc1.prg = v & 0x1F;
+    }
+
+    /// A CPU write to $8000-$FFFF: one serial bit into the MMC1 (bit 7 resets it).
+    pub fn mapper_write(&mut self, addr: u16, v: u8) {
+        let m = &mut self.mmc1;
+        if v & 0x80 != 0 {
+            m.shift = 0;
+            m.count = 0;
+            m.control |= 0x0C;
+        } else {
+            m.shift |= (v & 1) << m.count;
+            m.count += 1;
+            if m.count == 5 {
+                let r = m.shift;
+                match addr {
+                    0x8000..=0x9FFF => m.control = r,
+                    0xA000..=0xBFFF => m.chr0 = r,
+                    0xC000..=0xDFFF => m.chr1 = r,
+                    _ => m.prg = r,
+                }
+                m.shift = 0;
+                m.count = 0;
+            }
+        }
         self.sync_chr();
     }
 

@@ -40,7 +40,7 @@ fn game_from_machine(rom: &Arc<Rom>, m: &Machine, apu: ApuLog) -> Game {
         rom: rom.clone(),
         vars: Vars::from_ram(&m.ram),
         ppu: m.ppu.clone(),
-        mmc1: Mmc1 { control: m.mmc1_control, chr0: m.mmc1_chr0, chr1: m.mmc1_chr1, prg: m.mmc1_prg },
+        mmc1: Mmc1 { control: m.mmc1_control, chr0: m.mmc1_chr0, chr1: m.mmc1_chr1, prg: m.mmc1_prg, shift: m.mmc1_shift, count: m.mmc1_count },
         joypads: Joypads { held: m.buttons, shift, strobe },
         apu: Box::new(apu),
     }
@@ -100,6 +100,9 @@ fn diff(routine: &Routine, game: &Game, ret: Ret, after: &Machine, apu: &[(u16, 
         ("MMC1 control", game.mmc1.control as u16, after.mmc1_control as u16),
         ("MMC1 CHR0", game.mmc1.chr0 as u16, after.mmc1_chr0 as u16),
         ("MMC1 CHR1", game.mmc1.chr1 as u16, after.mmc1_chr1 as u16),
+        ("MMC1 PRG", game.mmc1.prg as u16, after.mmc1_prg as u16),
+        ("MMC1 shift", game.mmc1.shift as u16, after.mmc1_shift as u16),
+        ("MMC1 count", game.mmc1.count as u16, after.mmc1_count as u16),
     ] {
         if ours != theirs {
             out.push(format!("{what}: ours {ours:04X} original {theirs:04X}"));
