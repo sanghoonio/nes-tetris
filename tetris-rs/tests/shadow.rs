@@ -146,7 +146,12 @@ fn run_script(name: &str, frames: usize, mut script: Script, routines: &[&'stati
             let log = ApuLog::default();
             let mut game = game_from_machine(&rom, &call.before, log.clone());
             let b = &call.before;
-            let ret = (routine.run)(&mut game, Regs { a: b.a, x: b.x, y: b.y, carry: b.c });
+            // The return address on the stack points at the call's last byte.
+            let sp = b.sp as usize;
+            let ret_addr = u16::from_le_bytes([b.ram[0x100 + ((sp + 1) & 0xFF)], b.ram[0x100 + ((sp + 2) & 0xFF)]]);
+            let inline = |a: u16| if a >= 0x8000 { b.prg[(a - 0x8000) as usize] } else { 0 };
+            let inline_word = u16::from_le_bytes([inline(ret_addr.wrapping_add(1)), inline(ret_addr.wrapping_add(2))]);
+            let ret = (routine.run)(&mut game, Regs { a: b.a, x: b.x, y: b.y, carry: b.c, inline_word });
             let apu = log.0.lock().unwrap().clone();
             let diffs = diff(routine, &game, ret, call.after, &apu, &call.apu_writes);
             let mut tallies = t.lock().unwrap();

@@ -23,6 +23,8 @@ pub struct Regs {
     pub x: u8,
     pub y: u8,
     pub carry: bool,
+    /// The two bytes after the call site, for routines that take an inline argument there.
+    pub inline_word: u16,
 }
 
 pub struct Routine {
@@ -44,6 +46,7 @@ pub fn all() -> Vec<&'static Routine> {
         crate::sound::effects_other::SHADOW,
         crate::sound::music::SHADOW,
         crate::controls::SHADOW,
+        crate::vram::SHADOW,
         crate::ending::SHADOW,
         crate::high_scores::SHADOW,
         crate::menus::SHADOW,

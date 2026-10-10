@@ -24,6 +24,7 @@ mod sound;
 mod spawn;
 mod sprites;
 mod system;
+mod vram;
 
 use std::sync::Arc;
 
