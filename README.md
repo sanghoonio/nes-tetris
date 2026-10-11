@@ -114,3 +114,35 @@ NES. Your settings, your last game's choices and your high scores are saved in
 - macOS: `~/Library/Application Support/Tetris/`
 - Linux: `~/.config/Tetris/`
 - Windows: `%APPDATA%\Tetris\`
+
+## Versus
+
+An optional build adds VERSUS to the title menu: one-on-one races against another copy of the
+game, as at the Classic Tetris World Championship. Each player plays their own game; when one
+tops out, the other plays on until they pass that score or top out too. Others can watch.
+
+    cargo run --release --features versus
+
+(For the Mac app: `desktop/macos/bundle.sh --versus --install`.)
+
+**Playing:** HOST makes a room and shows its four-letter code; the other player chooses JOIN
+and types it, and anyone else can WATCH with it. The host sets the level, whether both players
+get the same pieces, and the rules (DAS, hard drop, ghost and so on) in the room; both players
+choose READY and the match starts after a countdown. Your game keys work as usual; there's no
+pausing, and pressing Escape twice leaves the match. After the result, READY again for a rematch.
+
+Each player needs their own ROM. Only button presses and scores travel between the games.
+
+**Rooms** are run by a small server. To play on your own network, start one on one of the
+computers:
+
+    cargo run --release -p netplay --bin local-room
+
+The game looks for it at `ws://localhost:8788`; to use another computer's, set `server` under
+`[versus]` in `settings.toml` (for example `ws://192.168.1.20:8788`). Two copies can run on one
+computer with different names:
+
+    cargo run --release --features versus -- --name ANA
+    cargo run --release --features versus -- --name BO
+
+`--server URL` works the same way, for a single run without saving.

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use netplay::{Note, Phase, Session};
-use netplay::Link;
+use netplay::{Link, LinkEvent};
 use protocol::{Pieces, Settings};
 use tetris_rs::Rom;
 
@@ -39,7 +39,7 @@ fn a_match_over_websockets() {
         .map(|(i, (name, watch))| {
             let c = Client {
                 session: Session::new(rom.clone(), None, name, watch),
-                link: Link::connect(&url),
+                link: Link::open(&url),
                 rng: 0x2545_F491 + i as u64,
                 held: 0,
                 readied: false,
@@ -59,7 +59,10 @@ fn a_match_over_websockets() {
         assert!(now < 120_000, "no confirmed result in time: {:?}", clients.iter().map(|c| c.session.phase().clone()).collect::<Vec<_>>());
         for c in clients.iter_mut() {
             while let Ok(msg) = c.link.rx.try_recv() {
-                c.session.receive(now, msg.expect("connection stays open"));
+                match msg {
+                    LinkEvent::Message(msg) => c.session.receive(now, msg),
+                    LinkEvent::Closed(why) => panic!("connection closed: {why}"),
+                }
             }
             if c.session.seat() == Some(0) && !set && *c.session.phase() == Phase::Lobby {
                 c.session.set_settings(settings);

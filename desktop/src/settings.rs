@@ -29,6 +29,95 @@ pub struct Settings {
     /// Saved once there is a table to save; absent means the game's own default table.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub high_scores: Option<Table>,
+    /// VERSUS: name, server, and the room settings last hosted with. Kept by every build, so one
+    /// without VERSUS doesn't drop it when it saves.
+    pub versus: Versus,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Versus {
+    pub name: String,
+    /// The room server: `local-room` (`ws://localhost:8788`) or the deployed Worker (`wss://...`).
+    pub server: String,
+    pub room: Room,
+}
+
+impl Default for Versus {
+    fn default() -> Self {
+        Versus { name: "PLAYER".into(), server: "ws://localhost:8788".into(), room: Room::default() }
+    }
+}
+
+#[cfg(feature = "versus")]
+impl Room {
+    /// The lobby's view.
+    pub fn to_game(&self) -> tetris_rs::versus::RoomSettings {
+        tetris_rs::versus::RoomSettings {
+            level: self.level.min(19),
+            identical: self.pieces == "same",
+            das_delay: self.das_delay.clamp(1, 30),
+            das_repeat: self.das_repeat.clamp(1, 10),
+            left_right: match self.left_right.as_str() {
+                "last" => LeftRight::Last,
+                "neither" => LeftRight::Neither,
+                _ => LeftRight::Both,
+            },
+            hard_drop: self.hard_drop,
+            ghost: self.ghost,
+            next_piece: self.next_piece,
+        }
+    }
+
+    pub fn from_game(r: &tetris_rs::versus::RoomSettings) -> Self {
+        Room {
+            level: r.level,
+            pieces: if r.identical { "same" } else { "own" }.into(),
+            das_delay: r.das_delay,
+            das_repeat: r.das_repeat,
+            left_right: match r.left_right {
+                LeftRight::Both => "both",
+                LeftRight::Last => "last",
+                LeftRight::Neither => "neither",
+            }
+            .into(),
+            hard_drop: r.hard_drop,
+            ghost: r.ghost,
+            next_piece: r.next_piece,
+        }
+    }
+}
+
+/// A room's settings, as the host left them.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Room {
+    pub level: u8,
+    /// "own" (each player's own sequence) or "same".
+    pub pieces: String,
+    pub das_delay: u8,
+    pub das_repeat: u8,
+    /// "both", "last" or "neither".
+    pub left_right: String,
+    pub hard_drop: bool,
+    pub ghost: bool,
+    pub next_piece: bool,
+}
+
+impl Default for Room {
+    /// Level 18, each their own pieces, the original rules.
+    fn default() -> Self {
+        Room {
+            level: 18,
+            pieces: "own".into(),
+            das_delay: 16,
+            das_repeat: 6,
+            left_right: "both".into(),
+            hard_drop: false,
+            ghost: false,
+            next_piece: true,
+        }
+    }
 }
 
 /// The game keys, by winit key name (`ArrowLeft`, `KeyX`, `Space`...). Menu keys are fixed:
@@ -157,6 +246,7 @@ impl Default for Settings {
             rules: Rules::default(),
             last_game: LastGame::default(),
             high_scores: None,
+            versus: Versus::default(),
         }
     }
 }

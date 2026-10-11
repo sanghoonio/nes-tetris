@@ -403,9 +403,18 @@ impl Game {
         self.memset_page(0x00, 0x02, 0x02);
         let mut at = LobbyItem::Leave;
         let mut had_ready = false;
+        // The host's changes not yet confirmed by the room: shown, and stepped from, meanwhile
+        // (a quick run of key presses shouldn't each start from the room's last word).
+        let mut pending: Option<RoomSettings> = None;
         loop {
             self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
-            let view = self.view();
+            let mut view = self.view();
+            if pending == Some(view.settings) || view.connection != Connection::InRoom {
+                pending = None;
+            }
+            if let Some(p) = pending {
+                view.settings = p;
+            }
             // Redraw what changed.
             let lines = Self::lobby_lines(&view);
             for (line, old) in lines.iter().zip(&shown) {
@@ -441,8 +450,7 @@ impl Game {
                         s.step(&mut settings, if has(MenuKey::Left) { -1 } else { 1 }, has(MenuKey::Confirm));
                         if settings != view.settings {
                             self.request(VersusRequest::Settings(settings));
-                            // Shown at once; the room's word follows.
-                            self.queue_text(at.row(), INNER.0, &Self::label_value(s.label(), &s.value(&settings)));
+                            pending = Some(settings);
                             self.vars.sfx_init[1] = SFX_MENU_OPTION;
                         }
                     }

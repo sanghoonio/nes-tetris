@@ -47,6 +47,9 @@ fn mode(out: &FrameOut) -> u8 {
     Vars::from_ram(&out.ram).game_mode
 }
 
+/// SETTINGS' place on the title menu (VERSUS comes before it when built in).
+const SETTINGS_ITEM: usize = if cfg!(feature = "versus") { 2 } else { 1 };
+
 /// Power on and skip the legal screen: the title menu is up.
 fn at_title() -> App {
     let mut app = App::new(Config::default());
@@ -249,7 +252,9 @@ fn next_piece_setting() {
 #[test]
 fn settings_rebind_and_back() {
     let mut app = at_title();
-    app.tap("ArrowDown", 5);
+    for _ in 0..SETTINGS_ITEM {
+        app.tap("ArrowDown", 5);
+    }
     app.tap("Enter", 10); // CONTROLS
     for _ in 0..4 {
         app.tap("ArrowDown", 3); // ROTATE RIGHT

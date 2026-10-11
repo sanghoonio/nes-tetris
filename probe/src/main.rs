@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use netplay::{Note, Phase, Session, View, HEIGHT, WIDTH};
-use netplay::Link;
+use netplay::{Link, LinkEvent};
 use protocol::{FromRoom, Outcome, Settings};
 use tetris_rs::options::Rules;
 use tetris_rs::{buttons, GameSetup, Pieces, Rom, Runner, Seed, Vars};
@@ -163,14 +163,14 @@ impl frontend::Game for Online {
         let now = self.now();
         while let Ok(msg) = self.link.rx.try_recv() {
             match msg {
-                Some(msg) => {
+                LinkEvent::Message(msg) => {
                     if let (FromRoom::Welcome { seat: Some(0) }, Some(settings)) = (&msg, self.settings.take()) {
                         self.session.set_settings(settings);
                     }
                     self.session.receive(now, msg);
                 }
-                None => {
-                    println!("disconnected");
+                LinkEvent::Closed(why) => {
+                    println!("disconnected: {why}");
                     self.quit = true;
                 }
             }
@@ -260,7 +260,7 @@ fn main() {
         pieces: if flag("--pieces") == Some("identical") { protocol::Pieces::Identical } else { protocol::Pieces::Separate },
         ..Settings::default()
     });
-    let link = Link::connect(&format!("{server}/room/{code}"));
+    let link = Link::open(&format!("{server}/room/{code}"));
     let name = flag("--name").unwrap_or(if has("--host") { "host" } else { "guest" });
     let options = frontend::Options { width: 2 * WIDTH + GAP, ..frontend::Options::default() };
     frontend::run("Probe", options, |rate| Online {

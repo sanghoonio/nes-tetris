@@ -13,7 +13,7 @@ pub mod link;
 pub mod local;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use link::Link;
+pub use link::{Link, LinkEvent};
 
 use std::collections::HashMap;
 use std::sync::Arc;

@@ -75,7 +75,7 @@ impl App {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/versus");
         std::fs::create_dir_all(&dir).unwrap();
         let out = self.last.as_ref().unwrap();
-        let mut ppm = format!("P6 256 240 255\n").into_bytes();
+        let mut ppm = b"P6 256 240 255\n".to_vec();
         for &p in out.pixels.iter() {
             let rgb = frontend::PALETTE[(p & 0x3F) as usize];
             ppm.extend_from_slice(&[(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8]);
@@ -172,7 +172,8 @@ fn hosting_and_the_lobby() {
     assert_eq!(app.take(), vec![VersusRequest::Settings(level)]);
     app.tap("ArrowDown", 2);
     app.tap("Enter", 2);
-    assert_eq!(app.take(), vec![VersusRequest::Settings(RoomSettings { identical: true, ..RoomSettings::default() })]);
+    // Changes build on each other before the room confirms them.
+    assert_eq!(app.take(), vec![VersusRequest::Settings(RoomSettings { level: 19, identical: true, ..RoomSettings::default() })]);
     // LEAVE: back to the VERSUS menu.
     app.tap("Escape", 20);
     assert_eq!(app.take(), vec![VersusRequest::Leave]);
