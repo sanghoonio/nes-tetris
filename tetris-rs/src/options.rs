@@ -106,6 +106,52 @@ impl Options {
     }
 }
 
+/// How a game started with `Runner::start_game` deals its pieces.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pieces {
+    /// As the original: each piece comes from `rng_seed` as it stands when the piece is chosen,
+    /// and the seed steps every frame, so the sequence depends on the player's timing.
+    Original,
+    /// The original's choice rule fed from a second seed that steps once per piece instead, so
+    /// the sequence depends only on the seed: games with the same seed get the same pieces.
+    Identical,
+}
+
+/// The state a game starts from that decides its pieces and timing: `rng_seed`, `spawnCount` and
+/// the low byte of `frameCounter` (whose low bits time line clears) as play begins.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Seed {
+    /// Never 0, where the generator would stick.
+    pub rng: u16,
+    pub spawn_count: u8,
+    pub frame: u8,
+}
+
+impl Seed {
+    /// A seed from any 32 bits (an `rng` of 0 becomes the power-on value, $8988).
+    pub fn from_u32(v: u32) -> Self {
+        let rng = (v >> 16) as u16;
+        Seed { rng: if rng == 0 { 0x8988 } else { rng }, spawn_count: (v >> 8) as u8, frame: v as u8 }
+    }
+}
+
+/// A game started directly, without the menus (`Runner::start_game`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GameSetup {
+    pub b_type: bool,
+    /// 0..=19.
+    pub level: u8,
+    /// B-type's garbage height, 0..=5.
+    pub height: u8,
+    /// 0..=2, or 3 for none.
+    pub music: u8,
+    pub seed: Seed,
+    pub pieces: Pieces,
+    pub rules: Rules,
+    /// Show the next piece.
+    pub next_piece: bool,
+}
+
 /// A key's name as the game can print it (letters, digits and a little punctuation).
 pub fn key_label(name: &str) -> String {
     let named = [

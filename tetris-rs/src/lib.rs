@@ -44,7 +44,7 @@ pub use frame::{FrameOut, Runner};
 pub use hw::{ApuSink, Joypads, Mmc1};
 pub use rom::Rom;
 pub use saved::Saved;
-pub use options::{Config, Options};
+pub use options::{Config, GameSetup, Options, Pieces, Seed};
 pub use pc_input::Keys;
 pub use vars::Vars;
 
@@ -75,5 +75,9 @@ pub struct Game {
     pub saved: Option<Saved>,
     /// The app's additions; `Options::original()` for the game as it was.
     pub options: Options,
+    /// The game `Runner::start_game` went straight into; none when powered on to the menus.
+    pub setup: Option<GameSetup>,
+    /// The second seed `Pieces::Identical` deals from.
+    pub(crate) piece_seed: u16,
     pub(crate) ui: pc_menus::Ui,
 }

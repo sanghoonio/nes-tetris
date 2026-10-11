@@ -14,6 +14,7 @@ use crate::{buttons, layout, Game};
 const MODE_LEGAL: u8 = 0;
 const MODE_TITLE: u8 = 1;
 const MODE_LEVEL_MENU: u8 = 3;
+const MODE_PLAY: u8 = 4;
 const MODE_DEMO: u8 = 5;
 const MODE_START_DEMO: u8 = 6;
 
@@ -114,7 +115,39 @@ impl Game {
         self.vars.game_mode = MODE_LEGAL;
         self.vars.number_of_players = 1;
         self.vars.frame_counter.0 &= 0x00FF;
+        if self.setup.is_some() {
+            self.start_from_setup();
+        }
         self.main_loop().await
+    }
+
+    /// A game started directly (`Runner::start_game`): leave what the game type and level menus
+    /// would have, and go to play.
+    fn start_from_setup(&mut self) {
+        let s = self.setup.expect("a setup");
+        let v = &mut self.vars;
+        v.game_type = s.b_type as u8;
+        v.music_type = s.music;
+        // A+Start adds 10 to player 1's level only; the menu's own stays on the grid (0..=9).
+        v.player1.start_level = s.level;
+        v.active.start_level = s.level % 10;
+        v.player1.start_height = s.height;
+        v.active.start_height = s.height;
+        v.rng_seed.0 = s.seed.rng;
+        v.spawn_count = s.seed.spawn_count;
+        v.frame_counter.0 = s.seed.frame as u16;
+        v.display_next_piece = !s.next_piece as u8;
+        v.render_mode = RENDER_MENUS;
+        v.game_mode = MODE_PLAY;
+        self.piece_seed = s.seed.rng;
+    }
+
+    /// A game started directly has ended: say so, and stay on this screen.
+    async fn end_single_game(&mut self) -> ! {
+        self.ui.game_over = true;
+        loop {
+            self.update_audio_and_wait_for_nmi().await;
+        }
     }
 
     /// The main loop: run the current mode; wait for vblank when it says the frame is done;
@@ -670,7 +703,7 @@ impl Game {
     /// makes the main loop wait an extra frame every frame.
     fn game_mode_state_check_for_reset_key_combo(&mut self) -> u8 {
         let held = self.vars.held_buttons_player1;
-        if held == buttons::A | buttons::B | buttons::SELECT | buttons::START {
+        if held == buttons::A | buttons::B | buttons::SELECT | buttons::START && self.setup.is_none() {
             self.update_audio2();
             self.vars.game_mode = MODE_LEGAL;
             return 0;
@@ -691,7 +724,7 @@ impl Game {
             1
         } else if self.vars.render_mode != RENDER_PLAY {
             self.vars.render_mode
-        } else if pressed & buttons::START == 0 {
+        } else if pressed & buttons::START == 0 || self.setup.is_some() {
             0
         } else if self.vars.player1.play_state == 0x0A {
             0x0A
@@ -762,6 +795,9 @@ impl Game {
             self.vars.active.curtain_row = row.wrapping_add(1);
             return;
         }
+        if self.setup.is_some() {
+            self.end_single_game().await;
+        }
         if self.vars.number_of_players != 2 {
             if self.vars.player1.score.0[2] >= 0x03 {
                 self.sleep_for_a_vblanks(ENDING_SLEEP_TIME_1).await;
@@ -793,6 +829,9 @@ impl Game {
         }
         self.vars.player1.vram_row = 0;
         self.sleep_for_14_vblanks().await;
+        if self.setup.is_some() {
+            self.end_single_game().await;
+        }
         self.vars.render_mode = RENDER_LEGAL_AND_TITLE;
         self.sleep_for_a_vblanks(0x80).await;
         self.ending_animation().await;

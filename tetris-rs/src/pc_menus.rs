@@ -130,6 +130,8 @@ pub(crate) struct Ui {
     name_advance: bool,
     /// EXIT was chosen.
     pub quit: bool,
+    /// A game started with `Runner::start_game` has ended.
+    pub game_over: bool,
     /// The settings changed this frame; the runner hands them to the app.
     pub config_changed: bool,
     title_cursor: usize,

@@ -1,7 +1,7 @@
 //! Choosing and spawning the next piece, and the piece statistics.
 
 use crate::shadow::{Ret, Routine};
-use crate::{layout, Game};
+use crate::{layout, Game, Pieces};
 
 /// The falling piece's play state, where the player controls it.
 const PLAY_STATE_FALLING: u8 = 1;
@@ -85,9 +85,15 @@ impl Game {
     /// table. It normally takes the entry for `(seed high byte + spawnCount) & 7`, but if that
     /// repeats `spawnID` (the last piece dealt), it rolls again from `(seed & 7) + spawnID`,
     /// reduced modulo 7. The leading RNG step under `NWC = 1` is not in this build.
+    ///
+    /// With `Pieces::Identical`, the seed read is the second one, stepped once per piece.
     pub fn pick_random_tetrimino(&mut self) -> u8 {
+        let identical = matches!(self.setup, Some(s) if s.pieces == Pieces::Identical);
+        if identical {
+            self.piece_seed = crate::rng::next(self.piece_seed);
+        }
         self.vars.spawn_count = self.vars.spawn_count.wrapping_add(1);
-        let index = self.rng_seed_high().wrapping_add(self.vars.spawn_count) & 7;
+        let index = self.piece_seed_high(identical).wrapping_add(self.vars.spawn_count) & 7;
         if index != SPAWN_TABLE_INVALID_INDEX {
             let piece = self.rom.byte(layout::SPAWN_TABLE + index as u16);
             if piece != self.vars.spawn_id {
@@ -95,9 +101,13 @@ impl Game {
                 return piece;
             }
         }
-        self.step_rng();
+        if identical {
+            self.piece_seed = crate::rng::next(self.piece_seed);
+        } else {
+            self.step_rng();
+        }
         // The original's `clc / adc spawnID` drops the carry, so this sum wraps at 8 bits.
-        let mut index = (self.rng_seed_high() & 7).wrapping_add(self.vars.spawn_id);
+        let mut index = (self.piece_seed_high(identical) & 7).wrapping_add(self.vars.spawn_id);
         while index >= SPAWN_TABLE_INVALID_INDEX {
             index -= SPAWN_TABLE_INVALID_INDEX;
         }
@@ -106,9 +116,11 @@ impl Game {
         piece
     }
 
-    /// The high byte of `rng_seed`, which the original reads with `lda rng_seed`.
-    fn rng_seed_high(&self) -> u8 {
-        (self.vars.rng_seed.0 >> 8) as u8
+    /// The high byte of `rng_seed`, which the original reads with `lda rng_seed` (or of the
+    /// second seed, for identical pieces).
+    fn piece_seed_high(&self, identical: bool) -> u8 {
+        let seed = if identical { self.piece_seed } else { self.vars.rng_seed.0 };
+        (seed >> 8) as u8
     }
 
     /// `incrementPieceStat`: count one more piece of the given orientation's type. Each count is

@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
 
 use crate::hw::{ApuSink, Joypads, Mmc1};
-use crate::{layout, Game, Options, Rom, Saved, Vars};
+use crate::{layout, Game, GameSetup, Options, Rom, Saved, Vars};
 
 pub const WIDTH: usize = ppu::WIDTH;
 pub const HEIGHT: usize = ppu::HEIGHT;
@@ -38,6 +38,9 @@ pub struct FrameOut {
     pub oam: [u8; 256],
     /// EXIT was chosen on the title menu.
     pub quit: bool,
+    /// A game started with `Runner::start_game` has ended: the curtain is down, or a B-type game
+    /// reached its goal. The game stays on its last screen.
+    pub game_over: bool,
     /// The settings, when the settings screen changed them this frame.
     pub config: Option<crate::Config>,
 }
@@ -123,6 +126,8 @@ impl Game {
             io: None,
             saved: None,
             options: Options::original(),
+            setup: None,
+            piece_seed: 0,
             ui: Default::default(),
         };
         g.ppu.chr_banks = g.mmc1.chr_banks();
@@ -149,6 +154,7 @@ impl Game {
                 palette: self.ppu.palette,
                 oam: self.ppu.oam,
                 quit: self.ui.quit,
+                game_over: self.ui.game_over,
                 config: std::mem::take(&mut self.ui.config_changed).then(|| self.options.config.clone()),
             };
             *io.out.borrow_mut() = Some(out);
@@ -302,6 +308,21 @@ impl Runner {
 
     /// As [`Runner::with_saved`], with the app's additions.
     pub fn with_options(rom: Arc<Rom>, sample_rate: Option<u32>, saved: Option<Saved>, options: Options) -> Self {
+        Self::build(rom, sample_rate, saved, options, None)
+    }
+
+    /// Power on straight into a game: no legal screen, title or menus. The game is the original
+    /// from the moment play begins, except that it ends at game over (`FrameOut::game_over`)
+    /// instead of going on to high-score entry, and Start doesn't pause.
+    pub fn start_game(rom: Arc<Rom>, sample_rate: Option<u32>, setup: GameSetup) -> Self {
+        assert!(setup.level <= 19 && setup.height <= 5 && setup.music <= 3 && setup.seed.rng != 0, "{setup:?}");
+        let mut options = Options::original();
+        options.config.rules = setup.rules;
+        options.config.next_piece = setup.next_piece;
+        Self::build(rom, sample_rate, None, options, Some(setup))
+    }
+
+    fn build(rom: Arc<Rom>, sample_rate: Option<u32>, saved: Option<Saved>, options: Options, setup: Option<GameSetup>) -> Self {
         let io = Rc::new(FrameIo::default());
         let apu: Box<dyn ApuSink> = match sample_rate {
             Some(rate) => Box::new(Synth { apu: apu::Apu::new(rate), rom: rom.clone(), odd_frame: false }),
@@ -311,6 +332,7 @@ impl Runner {
         game.io = Some(io.clone());
         game.saved = saved;
         game.options = options;
+        game.setup = setup;
         let game = Box::pin(async move {
             // The first frame's buttons are held from power-on.
             let first = game.io.clone().unwrap();
