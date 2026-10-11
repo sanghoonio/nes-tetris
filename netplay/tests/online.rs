@@ -1,12 +1,12 @@
 //! A whole match over real websockets: the local room server on a free port, and a host, an
-//! opponent and a watcher, each a `Session` on the probe's `Link`, headless and faster than real
+//! opponent and a watcher, each a `Session` on a `Link`, headless and faster than real
 //! time. The result must be confirmed and every replica must have matched its checksums.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use netplay::{Note, Phase, Session};
-use probe::Link;
+use netplay::Link;
 use protocol::{Pieces, Settings};
 use tetris_rs::Rom;
 
@@ -30,7 +30,7 @@ struct Client {
 fn a_match_over_websockets() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
-    std::thread::spawn(move || probe::local::serve(listener));
+    std::thread::spawn(move || netplay::local::serve(listener));
     let url = format!("ws://127.0.0.1:{port}/room/TEST");
     let rom = rom();
     let mut clients: Vec<Client> = [("ana", false), ("bo", false), ("cy", true)]

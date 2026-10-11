@@ -1030,6 +1030,7 @@ version = "0.1.0"
 dependencies = [
  "protocol",
  "tetris-rs",
+ "tungstenite",
 ]
 
 [[package]]
@@ -1530,7 +1531,6 @@ dependencies = [
  "netplay",
  "protocol",
  "tetris-rs",
- "tungstenite",
 ]
 
 [[package]]

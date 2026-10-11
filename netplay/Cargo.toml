@@ -9,4 +9,8 @@ description = "The client side of an online match: your game, replicas of the ot
 protocol = { path = "../protocol" }
 tetris-rs = { path = "../tetris-rs", default-features = false }
 
+# The websocket and the local room server, for native clients.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
+
 [dev-dependencies]

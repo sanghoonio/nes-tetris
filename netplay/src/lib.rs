@@ -7,6 +7,14 @@
 //! arrive and played back steadily a fixed delay behind, so they move smoothly. Every 60 frames
 //! each game's checksum is sent, and each replica checks itself against it.
 
+#[cfg(not(target_arch = "wasm32"))]
+pub mod link;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod local;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use link::Link;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 

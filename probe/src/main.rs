@@ -7,7 +7,7 @@
 //!         [--music 0-3] [--seed N] [--pieces original|identical]
 //!
 //! Online, through a room: `server/` under `wrangler dev` (`ws://localhost:8787`, the default), or
-//! `cargo run --release -p probe --bin local-room` (`--server ws://localhost:8788`):
+//! `cargo run --release -p netplay --bin local-room` (`--server ws://localhost:8788`):
 //!
 //!     ... -- tetris.nes --host [--level N] [--pieces identical] [--name NAME] [--server URL]
 //!     ... -- tetris.nes --join CODE [--name NAME] [--server URL]
@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use netplay::{Note, Phase, Session, View, HEIGHT, WIDTH};
-use probe::Link;
+use netplay::Link;
 use protocol::{FromRoom, Outcome, Settings};
 use tetris_rs::options::Rules;
 use tetris_rs::{buttons, GameSetup, Pieces, Rom, Runner, Seed, Vars};

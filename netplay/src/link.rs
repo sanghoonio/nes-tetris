@@ -1,12 +1,9 @@
-//! What the probe's online mode is built from: the websocket link to a room, and a room served
-//! locally (`local-room`) for trying matches without Cloudflare.
+//! The websocket to a room, on its own thread, for native clients.
 
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
 
 use protocol::{FromRoom, ToRoom};
-
-pub mod local;
 
 /// The websocket, on its own thread: messages from the room come in on `rx`, messages to it go
 /// out on `tx`. A closed connection arrives as `None`.

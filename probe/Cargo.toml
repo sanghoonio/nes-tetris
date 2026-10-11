@@ -10,4 +10,3 @@ tetris-rs = { path = "../tetris-rs", default-features = false }
 frontend = { path = "../frontend" }
 netplay = { path = "../netplay" }
 protocol = { path = "../protocol" }
-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
