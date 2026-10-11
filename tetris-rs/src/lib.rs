@@ -31,6 +31,10 @@ mod rng;
 pub mod options;
 pub mod pc_input;
 mod pc_menus;
+#[cfg(feature = "versus")]
+mod pc_versus;
+#[cfg(feature = "versus")]
+pub mod versus;
 pub mod saved;
 mod sound;
 mod spawn;

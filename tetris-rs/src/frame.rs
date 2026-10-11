@@ -43,6 +43,9 @@ pub struct FrameOut {
     pub game_over: bool,
     /// The settings, when the settings screen changed them this frame.
     pub config: Option<crate::Config>,
+    /// What the player asked for on the VERSUS screens this frame.
+    #[cfg(feature = "versus")]
+    pub versus: Vec<crate::versus::VersusRequest>,
 }
 
 struct FrameIn {
@@ -50,6 +53,9 @@ struct FrameIn {
     /// The app's keys, translated per screen (`pc_input`); none for the NES buttons above.
     keys: Option<crate::pc_input::Keys>,
     pokes: Vec<(u16, u8)>,
+    /// What the VERSUS screens show (`Runner::next_frame_versus`).
+    #[cfg(feature = "versus")]
+    versus: Option<crate::versus::VersusView>,
 }
 
 /// The frame exchange between the game and `Runner`: each side leaves its half here.
@@ -156,6 +162,8 @@ impl Game {
                 quit: self.ui.quit,
                 game_over: self.ui.game_over,
                 config: std::mem::take(&mut self.ui.config_changed).then(|| self.options.config.clone()),
+                #[cfg(feature = "versus")]
+                versus: std::mem::take(&mut self.ui.versus_requests),
             };
             *io.out.borrow_mut() = Some(out);
             NextFrame(false).await;
@@ -186,6 +194,10 @@ impl Game {
     /// Hold the buttons `Runner` left for this frame and apply its pokes.
     fn take_input(&mut self, io: &FrameIo) {
         let input = io.input.borrow_mut().take().expect("runner left no input");
+        #[cfg(feature = "versus")]
+        if input.versus.is_some() {
+            self.ui.versus = input.versus.clone();
+        }
         let buttons = match input.keys {
             Some(keys) => {
                 let b = self.translate_keys(&keys);
@@ -349,13 +361,19 @@ impl Runner {
 
     /// As [`Runner::next_frame`], writing `pokes` into RAM at the start of the frame (tests).
     pub fn next_frame_with(&mut self, buttons: u8, pokes: Vec<(u16, u8)>) -> FrameOut {
-        self.step(FrameIn { buttons, keys: None, pokes })
+        self.step(FrameIn { buttons, keys: None, pokes, #[cfg(feature = "versus")] versus: None })
     }
 
     /// Run to the end of the next frame with the app's controls: keys by name, which the game
     /// turns into NES buttons per screen (`pc_input`).
     pub fn next_frame_keys(&mut self, keys: crate::pc_input::Keys) -> FrameOut {
-        self.step(FrameIn { buttons: 0, keys: Some(keys), pokes: Vec::new() })
+        self.step(FrameIn { buttons: 0, keys: Some(keys), pokes: Vec::new(), #[cfg(feature = "versus")] versus: None })
+    }
+
+    /// As [`Runner::next_frame_keys`], with what the VERSUS screens show.
+    #[cfg(feature = "versus")]
+    pub fn next_frame_versus(&mut self, keys: crate::pc_input::Keys, view: crate::versus::VersusView) -> FrameOut {
+        self.step(FrameIn { buttons: 0, keys: Some(keys), pokes: Vec::new(), versus: Some(view) })
     }
 
     fn step(&mut self, input: FrameIn) -> FrameOut {

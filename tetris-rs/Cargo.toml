@@ -16,3 +16,4 @@ versus = []
 
 [dev-dependencies]
 recomp = { path = "../recomp" }
+frontend = { path = "../frontend" }

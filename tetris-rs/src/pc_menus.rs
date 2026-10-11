@@ -28,7 +28,24 @@ const PAUSE_ITEMS: [(&str, u8); 2] = [("RESUME", 127), ("QUIT", 139)];
 const PAUSE_CENTRE: u8 = 132;
 
 /// The title menu, left-aligned under the logo where `PUSH START` was (row 20, columns 7..16).
+#[cfg(not(feature = "versus"))]
 const TITLE_ITEMS: [(&str, u8, u8); 3] = [("START", 18, 7), ("SETTINGS", 20, 7), ("EXIT", 22, 7)];
+/// With VERSUS, four items, starting a row higher.
+#[cfg(feature = "versus")]
+const TITLE_ITEMS: [(&str, u8, u8); 4] = [("START", 16, 7), ("VERSUS", 18, 7), ("SETTINGS", 20, 7), ("EXIT", 22, 7)];
+/// What each title item does.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TitleItem {
+    Start,
+    #[cfg(feature = "versus")]
+    Versus,
+    Settings,
+    Exit,
+}
+#[cfg(not(feature = "versus"))]
+const TITLE_ACTIONS: [TitleItem; 3] = [TitleItem::Start, TitleItem::Settings, TitleItem::Exit];
+#[cfg(feature = "versus")]
+const TITLE_ACTIONS: [TitleItem; 4] = [TitleItem::Start, TitleItem::Versus, TitleItem::Settings, TitleItem::Exit];
 const PUSH_START: (u8, u8, usize) = (20, 7, 10);
 
 /// The level grid's first digit cell (row, column); cells are every other column and row.
@@ -52,11 +69,11 @@ const NARROW_DIGITS: [[u8; 7]; 10] = [
 /// The settings panel: the music box's frame around rows 2..=27, columns 2..=29.
 const PANEL: (u8, u8, u8, u8) = (2, 2, 27, 29);
 const FRAME_TILES: [u8; 8] = [0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F];
-const LABEL_COL: u8 = 5;
-const VALUE_COL: u8 = 19;
-const VALUE_WIDTH: usize = 9;
+pub(crate) const LABEL_COL: u8 = 5;
+pub(crate) const VALUE_COL: u8 = 19;
+pub(crate) const VALUE_WIDTH: usize = 9;
 /// Inside the frame: columns 3..=28.
-const INNER: (u8, usize) = (3, 26);
+pub(crate) const INNER: (u8, usize) = (3, 26);
 const HEADER_ROW: u8 = 4;
 /// Items are double-spaced, like the game's own menus, from row 6.
 const FIRST_ROW: u8 = 6;
@@ -140,6 +157,11 @@ pub(crate) struct Ui {
     pub last_horizontal: u8,
     /// Nametable writes for the next NMI: (PPU address, tiles).
     ppu_queue: Vec<(u16, Vec<u8>)>,
+    /// What the app last handed the VERSUS screens, and what the player asked for since.
+    #[cfg(feature = "versus")]
+    pub versus: Option<crate::versus::VersusView>,
+    #[cfg(feature = "versus")]
+    pub versus_requests: Vec<crate::versus::VersusRequest>,
 }
 
 impl Item {
@@ -249,24 +271,31 @@ impl Game {
             self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
             let keys = self.menu_pressed();
             let cursor = &mut self.ui.title_cursor;
+            let n = TITLE_ITEMS.len();
             if keys.contains(&MenuKey::Up) || keys.contains(&MenuKey::Down) {
-                *cursor = (*cursor + if keys.contains(&MenuKey::Up) { 2 } else { 1 }) % 3;
+                *cursor = (*cursor + if keys.contains(&MenuKey::Up) { n - 1 } else { 1 }) % n;
                 self.vars.sfx_init[1] = SFX_MENU_OPTION;
             } else if keys.contains(&MenuKey::Confirm) {
-                match *cursor {
-                    0 => {
+                match TITLE_ACTIONS[*cursor] {
+                    TitleItem::Start => {
                         self.vars.sfx_init[1] = SFX_MENU_SCREEN;
                         self.vars.game_mode = self.vars.game_mode.wrapping_add(1);
                         self.ui.screen = Screen::Game;
                         return SFX_MENU_SCREEN;
                     }
-                    1 => {
+                    #[cfg(feature = "versus")]
+                    TitleItem::Versus => {
+                        self.vars.sfx_init[1] = SFX_MENU_SCREEN;
+                        self.versus_menu().await;
+                        return 0xFF;
+                    }
+                    TitleItem::Settings => {
                         self.vars.sfx_init[1] = SFX_MENU_SCREEN;
                         self.settings_screen().await;
                         // Back to a freshly drawn title screen.
                         return 0xFF;
                     }
-                    _ => self.ui.quit = true,
+                    TitleItem::Exit => self.ui.quit = true,
                 }
             }
             let (text, row, col) = TITLE_ITEMS[self.ui.title_cursor];
@@ -316,7 +345,7 @@ impl Game {
                 }
             } else if has(MenuKey::Back) {
                 self.vars.sfx_init[1] = SFX_MENU_SCREEN;
-                self.ui.title_cursor = 1;
+                self.ui.title_cursor = TITLE_ACTIONS.iter().position(|&a| a == TitleItem::Settings).unwrap();
                 self.ui.screen = Screen::TitleMenu;
                 return;
             } else if has(MenuKey::Up) || has(MenuKey::Down) {
@@ -474,9 +503,30 @@ impl Game {
             let next = self.vars.high_score_entry_name_offset_for_letter + 1;
             self.vars.high_score_entry_name_offset_for_letter = if next < 6 { next } else { 0 };
         }
-        let shift = self.shift_held();
         let Some(key) = self.ui.keys.pressed.first().cloned() else { return };
         let typed = match key.as_str() {
+            "Backspace" => {
+                let at = self.vars.high_score_entry_name_offset_for_letter;
+                self.vars.high_score_entry_name_offset_for_letter = if at == 0 { 5 } else { at - 1 };
+                let i = self.entered_letter_index();
+                self.vars.high_score_names[i] = SPACE;
+                self.vars.sfx_init[1] = SFX_MENU_OPTION;
+                None
+            }
+            k => self.typed_char(k),
+        };
+        if let Some(c) = typed.and_then(|c| NAME_CHARS.find(c)) {
+            let i = self.entered_letter_index();
+            self.vars.high_score_names[i] = c as u8;
+            self.vars.sfx_init[1] = SFX_MENU_OPTION;
+            self.ui.name_advance = true;
+        }
+    }
+
+    /// The character a key types (letters, digits, `-,/().` and space; Shift+9/0 for brackets).
+    pub(crate) fn typed_char(&self, key: &str) -> Option<char> {
+        let shift = self.shift_held();
+        match key {
             k if k.len() == 4 && k.starts_with("Key") => k.chars().nth(3),
             "Digit9" if shift => Some('('),
             "Digit0" if shift => Some(')'),
@@ -487,21 +537,7 @@ impl Game {
             "Period" => Some('.'),
             "Quote" => Some('"'),
             "Space" => Some(' '),
-            "Backspace" => {
-                let at = self.vars.high_score_entry_name_offset_for_letter;
-                self.vars.high_score_entry_name_offset_for_letter = if at == 0 { 5 } else { at - 1 };
-                let i = self.entered_letter_index();
-                self.vars.high_score_names[i] = SPACE;
-                self.vars.sfx_init[1] = SFX_MENU_OPTION;
-                None
-            }
             _ => None,
-        };
-        if let Some(c) = typed.and_then(|c| NAME_CHARS.find(c)) {
-            let i = self.entered_letter_index();
-            self.vars.high_score_names[i] = c as u8;
-            self.vars.sfx_init[1] = SFX_MENU_OPTION;
-            self.ui.name_advance = true;
         }
     }
 
@@ -524,7 +560,7 @@ impl Game {
 
     /// The two arrows either side of `len` characters at (row, col), unless this is the frame
     /// in four they're hidden.
-    fn stage_menu_arrows(&mut self, row: u8, col: u8, len: usize) {
+    pub(crate) fn stage_menu_arrows(&mut self, row: u8, col: u8, len: usize) {
         if self.vars.frame_counter.0 as u8 & MENU_CURSOR_MASK == 0 {
             return;
         }
@@ -540,7 +576,7 @@ impl Game {
         self.vars.oam_staging_length = self.vars.oam_staging_length.wrapping_add(4);
     }
 
-    fn text_tiles(&self, text: &str) -> Vec<u8> {
+    pub(crate) fn text_tiles(&self, text: &str) -> Vec<u8> {
         text.chars()
             .map(|c| match NAME_CHARS.find(c) {
                 Some(i) => self.rom.table(layout::HIGH_SCORE_CHAR_TO_TILE, i),
@@ -550,7 +586,7 @@ impl Game {
     }
 
     /// Write text straight to the nametable (rendering off).
-    fn put_text(&mut self, row: u8, col: u8, text: &str) {
+    pub(crate) fn put_text(&mut self, row: u8, col: u8, text: &str) {
         self.ppu_addr(nametable_addr(row, col));
         for t in self.text_tiles(text) {
             self.ppu_data(t);
@@ -558,14 +594,14 @@ impl Game {
     }
 
     /// Write text at the next NMI.
-    fn queue_text(&mut self, row: u8, col: u8, text: &str) {
+    pub(crate) fn queue_text(&mut self, row: u8, col: u8, text: &str) {
         let tiles = self.text_tiles(text);
         self.ui.ppu_queue.push((nametable_addr(row, col), tiles));
     }
 
     /// Clear the panel, frame it with the music box's border, and give it the box's palette
     /// (0: white text, yellow frame).
-    fn draw_panel(&mut self) {
+    pub(crate) fn draw_panel(&mut self) {
         let (top, left, bottom, right) = PANEL;
         let [tl, t, tr, l, r, bl, b, br] = FRAME_TILES;
         for row in top..=bottom {

@@ -38,6 +38,9 @@ pub(crate) enum Screen {
     NameEntry,
     /// The endings: Enter continues.
     Ending,
+    /// The VERSUS screens (`pc_versus`).
+    #[cfg(feature = "versus")]
+    Versus,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -77,6 +80,43 @@ const MENU_KEYS: [(&str, MenuKey); 13] = [
 ];
 const PAD_START: &str = "PadStart";
 
+/// In play: the NES buttons the keys `held` stand for, with the game keys `bindings` (by
+/// `options::ACTIONS`) and the gamepad's fixed layout. Up (hard drop) only with `hard_drop`.
+pub fn play_buttons(bindings: &[String; 7], hard_drop: bool, held: &[&str]) -> u8 {
+    let bound = [
+        (MOVE_LEFT, buttons::LEFT),
+        (MOVE_RIGHT, buttons::RIGHT),
+        (SOFT_DROP, buttons::DOWN),
+        (HARD_DROP, if hard_drop { buttons::UP } else { 0 }),
+        (ROTATE_RIGHT, buttons::A),
+        (ROTATE_LEFT, buttons::B),
+        (PAUSE, buttons::START),
+    ];
+    let pad = [
+        ("PadLeft", buttons::LEFT),
+        ("PadRight", buttons::RIGHT),
+        ("PadDown", buttons::DOWN),
+        ("PadNorth", if hard_drop { buttons::UP } else { 0 }),
+        ("PadEast", buttons::A),
+        ("PadSouth", buttons::B),
+        (PAD_START, buttons::START),
+    ];
+    let mut out = 0;
+    for k in held {
+        for &(action, bit) in &bound {
+            if bindings[action] == *k {
+                out |= bit;
+            }
+        }
+        for &(name, bit) in &pad {
+            if name == *k {
+                out |= bit;
+            }
+        }
+    }
+    out
+}
+
 impl Game {
     /// The NES buttons this frame's keys stand for.
     pub(crate) fn translate_keys(&mut self, keys: &Keys) -> u8 {
@@ -108,43 +148,12 @@ impl Game {
                 }
             }
             Mapping::Play => {
-                let keys = &self.options.config.keys;
-                let hard_drop = self.options.config.rules.hard_drop;
-                let bound = [
-                    (MOVE_LEFT, buttons::LEFT),
-                    (MOVE_RIGHT, buttons::RIGHT),
-                    (SOFT_DROP, buttons::DOWN),
-                    (HARD_DROP, if hard_drop { buttons::UP } else { 0 }),
-                    (ROTATE_RIGHT, buttons::A),
-                    (ROTATE_LEFT, buttons::B),
-                    (PAUSE, buttons::START),
-                ];
-                let pad = [
-                    ("PadLeft", buttons::LEFT),
-                    ("PadRight", buttons::RIGHT),
-                    ("PadDown", buttons::DOWN),
-                    ("PadNorth", if hard_drop { buttons::UP } else { 0 }),
-                    ("PadEast", buttons::A),
-                    ("PadSouth", buttons::B),
-                    (PAD_START, buttons::START),
-                ];
                 // Losing focus presses Start, released every other frame so the press lands
                 // even on frames the game doesn't look for it (line clears, entry delay).
                 if unfocused && self.joypads.held[0] & buttons::START == 0 {
                     out |= buttons::START;
                 }
-                for k in &live {
-                    for &(action, bit) in &bound {
-                        if keys[action] == *k {
-                            out |= bit;
-                        }
-                    }
-                    for &(name, bit) in &pad {
-                        if name == *k {
-                            out |= bit;
-                        }
-                    }
-                }
+                out |= play_buttons(&self.options.config.keys, self.options.config.rules.hard_drop, &live);
             }
         }
         out
@@ -153,6 +162,8 @@ impl Game {
     fn mapping(&self) -> Mapping {
         match self.ui.screen {
             Screen::TitleMenu | Screen::Settings | Screen::Pause => Mapping::Own,
+            #[cfg(feature = "versus")]
+            Screen::Versus => Mapping::Own,
             Screen::NameEntry => Mapping::NameEntry,
             Screen::Ending => Mapping::Menu,
             // Play, except the game-over curtain (Enter continues there).
