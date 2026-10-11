@@ -2,7 +2,7 @@
 //!
 //!     cargo run --release -p recomp --bin tetris-recomp [path/to/tetris.nes]
 //!
-//! The ROM defaults to $TETRIS_ROM, then tetris_nes/tetris.nes.
+//! The ROM defaults to $TETRIS_ROM, then nes-tetris/tetris.nes.
 
 use recomp::stepper::Stepper;
 use std::path::PathBuf;

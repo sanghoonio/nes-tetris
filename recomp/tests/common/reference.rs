@@ -14,7 +14,7 @@ pub fn rom_path() -> PathBuf {
 }
 
 pub fn rom_bytes() -> Vec<u8> {
-    std::fs::read(rom_path()).expect("ROM not found; set TETRIS_ROM or place tetris_nes/tetris.nes")
+    std::fs::read(rom_path()).expect("ROM not found; set TETRIS_ROM or place nes-tetris/tetris.nes")
 }
 
 pub struct Reference {

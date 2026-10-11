@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Prepare a git worktree of tetris_nes for a worker: link in the untracked inputs (the ROM and
+# Prepare a git worktree of nes-tetris for a worker: link in the untracked inputs (the ROM and
 # the disassembly) from the main checkout and generate the recompile.
 set -euo pipefail
-MAIN="${TETRIS_MAIN:-/Users/sam/Documents/Projects/tetris/tetris_nes}"
+MAIN="${TETRIS_MAIN:-/Users/sam/Documents/Projects/tetris/nes-tetris}"
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 [ "$ROOT" = "$MAIN" ] || {

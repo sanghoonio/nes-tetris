@@ -17,6 +17,18 @@ dirs = "6"
 serde = { version = "1", features = ["derive"] }
 toml = "0.9"
 
+[features]
+# `build.rs` builds the data of your ROM into the package, for the `tetris` binary. Without it
+# the package builds with no ROM, for a program that hands the game a ROM at runtime
+# (`Rom::new`), e.g. in a browser.
+default = ["embedded-rom"]
+embedded-rom = []
+
+[[bin]]
+name = "tetris"
+path = "src/bin/tetris/main.rs"
+required-features = ["embedded-rom"]
+
 [build-dependencies]
 sha1_smol = "1"
 
