@@ -75,6 +75,14 @@ pub struct Session {
     replicas: [Option<Replica>; 2],
     /// The result's frames, until both games have reached them and the report is sent.
     report_due: Option<[u32; 2]>,
+    /// The seat this session played the last (or current) match from. The room can move a player
+    /// afterwards (the opponent becomes host when the host leaves); the match keeps its seats.
+    match_seat: Option<Seat>,
+    /// Seats whose player left during this match.
+    gone: [bool; 2],
+    /// Who played the match (or is playing it), as it started: a player who leaves loses their
+    /// seat, but the result still names them.
+    match_names: [Option<String>; 2],
     outbox: Vec<ToRoom>,
     notes: Vec<Note>,
 }
@@ -124,6 +132,9 @@ impl Session {
             own: None,
             replicas: [None, None],
             report_due: None,
+            match_seat: None,
+            gone: [false; 2],
+            match_names: [None, None],
             outbox: vec![ToRoom::Hello { name: name.to_string(), watch }],
             notes: vec![],
         }
@@ -153,7 +164,7 @@ impl Session {
     /// Each seat's score as this session last saw it (own game, or replica).
     pub fn scores(&self) -> [Option<u32>; 2] {
         [0, 1].map(|s| {
-            if self.seat == Some(s as Seat) {
+            if self.match_seat == Some(s as Seat) {
                 self.own.as_ref().map(|o| *o.scores.last().unwrap())
             } else {
                 self.replicas[s].as_ref().map(|r| *r.scores.last().unwrap())
@@ -164,6 +175,21 @@ impl Session {
     /// Checksums each replica has matched so far (none for the player's own seat).
     pub fn verified(&self) -> [u32; 2] {
         [0, 1].map(|s| self.replicas[s].as_ref().map_or(0, |r| r.verified))
+    }
+
+    /// The seat this session played the last (or current) match from; none when watching.
+    pub fn match_seat(&self) -> Option<Seat> {
+        self.match_seat
+    }
+
+    /// Who played the last (or current) match, by seat, as it started.
+    pub fn match_names(&self) -> &[Option<String>; 2] {
+        &self.match_names
+    }
+
+    /// Seats whose player left during this match (their board stops where it is).
+    pub fn gone(&self) -> [bool; 2] {
+        self.gone
     }
 
     pub fn take_outbox(&mut self) -> Vec<ToRoom> {
@@ -202,8 +228,11 @@ impl Session {
                 self.seeds = seeds;
                 self.own = None;
                 self.report_due = None;
+                self.gone = [false; 2];
+                self.match_seat = self.seat;
+                self.match_names = self.players.clone().map(|p| p.map(|p| p.name));
                 self.replicas = [0, 1].map(|s| {
-                    (self.seat != Some(s as Seat)).then(|| Replica::new(Runner::start_game(self.rom.clone(), None, self.setup(s))))
+                    (self.match_seat != Some(s as Seat)).then(|| Replica::new(Runner::start_game(self.rom.clone(), None, self.setup(s))))
                 });
                 self.phase = Phase::Countdown { at: now + countdown_ms };
             }
@@ -223,13 +252,16 @@ impl Session {
                     }
                 }
             }
-            FromRoom::Gone { seat } => self.notes.push(Note::Gone(seat)),
+            FromRoom::Gone { seat } => {
+                self.gone[seat as usize] = true;
+                self.notes.push(Note::Gone(seat));
+            }
             FromRoom::Result { match_id, outcome, scores, frames } => {
                 if match_id != self.match_id {
                     return;
                 }
                 self.phase = Phase::Over { outcome, scores, confirmed: None };
-                if self.seat.is_some() {
+                if self.match_seat.is_some() {
                     self.report_due = Some(frames);
                     self.report_if_ready();
                 }
@@ -256,7 +288,7 @@ impl Session {
         if let Phase::Countdown { at } = self.phase {
             if now >= at {
                 self.phase = Phase::Playing;
-                if let Some(s) = self.seat {
+                if let Some(s) = self.match_seat {
                     let runner = Runner::start_game(self.rom.clone(), self.sample_rate, self.setup(s as usize));
                     self.own = Some(Own { runner, scores: vec![0], batch: vec![], frames: 0, over: false, last: None });
                 }
@@ -287,7 +319,7 @@ impl Session {
         }
         self.report_if_ready();
         let boards = [0, 1].map(|s| {
-            if self.seat == Some(s as Seat) {
+            if self.match_seat == Some(s as Seat) {
                 self.own.as_ref().and_then(|o| o.last.clone())
             } else {
                 self.replicas[s].as_ref().and_then(|r| r.last.clone())
@@ -302,7 +334,7 @@ impl Session {
         let mut scores = [0; 2];
         for s in 0..2 {
             let f = frames[s] as usize;
-            let have = if self.seat == Some(s as Seat) {
+            let have = if self.match_seat == Some(s as Seat) {
                 self.own.as_ref().map(|o| o.scores.get(f).copied())
             } else {
                 self.replicas[s].as_ref().map(|r| (r.played >= f).then(|| r.scores[f]))

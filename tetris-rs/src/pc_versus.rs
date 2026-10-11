@@ -68,7 +68,7 @@ impl Setting {
     fn label(self) -> &'static str {
         match self {
             Setting::Level => "LEVEL",
-            Setting::Pieces => "SAME PIECES",
+            Setting::Pieces => "SAME SEED",
             Setting::DasDelay => "DAS DELAY",
             Setting::DasRepeat => "DAS REPEAT",
             Setting::LeftRight => "LEFT/RIGHT",

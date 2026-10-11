@@ -24,8 +24,6 @@ pub type Seat = u8;
 pub const BATCH_FRAMES: usize = 15;
 /// Frames between game checksums.
 pub const CHECKSUM_FRAMES: u32 = 60;
-/// How long a disconnected player has before forfeiting.
-pub const FORFEIT_MS: u64 = 30_000;
 /// The countdown before a match starts.
 pub const COUNTDOWN_MS: u64 = 3_000;
 /// Longest name, in characters the game's font can show (`A`-`Z`, `0`-`9`, space, `-`, `.`).
@@ -66,7 +64,8 @@ pub enum FromRoom {
     /// A player's buttons, passed on (see `ToRoom::Inputs`).
     Inputs { seat: Seat, frame: u32, buttons: Vec<u8>, score: u32, over: bool },
     Checksum { seat: Seat, frame: u32, hash: u64 },
-    /// A player's connection dropped; their board stops where it is.
+    /// A player's connection dropped during a match. Before topping out that's a forfeit (a
+    /// `Result` follows); after, their board stops where it is and the match goes on.
     Gone { seat: Seat },
     /// The match is decided. Each seat's game counts up to `frames[seat]` frames, where its score
     /// was `scores[seat]`. Clients stop the games, then report the scores they have at those frames.
@@ -82,7 +81,7 @@ pub enum FromRoom {
 pub enum Outcome {
     Win { seat: Seat },
     Draw,
-    /// `seat` left during the match and didn't come back in time.
+    /// `seat` left during the match before topping out.
     Forfeit { seat: Seat },
 }
 

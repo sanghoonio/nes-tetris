@@ -143,7 +143,7 @@ impl Online {
 
     /// Both boards side by side: ours (or the host's, watching) on the left.
     fn compose(&self, view: View) -> Vec<u8> {
-        let left = self.session.seat().unwrap_or(0) as usize;
+        let left = self.session.match_seat().unwrap_or(0) as usize;
         let [a, b] = [left, 1 - left].map(|s| view.boards[s].as_ref());
         let width = 2 * WIDTH + GAP;
         let mut pixels = vec![BLACK; width * HEIGHT];

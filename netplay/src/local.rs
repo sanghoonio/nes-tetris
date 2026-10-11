@@ -29,10 +29,9 @@ impl Rooms {
     }
 
     fn run(&self, code: &str, event: Event) {
-        let now = self.now();
         let mut rooms = self.rooms.lock().unwrap();
         let hosted = rooms.get_mut(code).expect("a room");
-        for send in hosted.room.handle(now, event) {
+        for send in hosted.room.handle(event) {
             if let Some(tx) = hosted.conns.get(&send.to) {
                 let _ = tx.send(send.msg);
             }
@@ -46,23 +45,6 @@ impl Rooms {
 /// Serve rooms on `listener` until the process ends.
 pub fn serve(listener: TcpListener) {
     let rooms = Rooms { start: Instant::now(), rooms: Arc::new(Mutex::new(HashMap::new())) };
-    // Forfeit timers.
-    let timer = rooms.clone();
-    std::thread::spawn(move || loop {
-        std::thread::sleep(Duration::from_millis(100));
-        let now = timer.now();
-        let due: Vec<String> = timer
-            .rooms
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|(_, h)| h.room.next_alarm().is_some_and(|t| t <= now))
-            .map(|(code, _)| code.clone())
-            .collect();
-        for code in due {
-            timer.run(&code, Event::Timer);
-        }
-    });
     let mut next_conn: ConnId = 1;
     for stream in listener.incoming().flatten() {
         let rooms = rooms.clone();

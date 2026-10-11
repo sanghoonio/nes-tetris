@@ -49,19 +49,18 @@ pub struct RoomObject {
 }
 
 impl RoomObject {
-    /// Feed `event` to the room, send what it says, save it between matches, and set the alarm.
+    /// Feed `event` to the room, send what it says, and save it between matches.
     async fn run(&self, event: Event) -> Result<()> {
         if self.room.borrow().is_none() {
             let saved: Option<Room> = self.state.storage().get("room").await?;
             let room = saved.unwrap_or_else(|| Room::new((random() * 9e15) as u64));
             *self.room.borrow_mut() = Some(room);
         }
-        let now = Date::now().as_millis();
-        let (sends, save, alarm) = {
+        let (sends, save) = {
             let mut room = self.room.borrow_mut();
             let room = room.as_mut().unwrap();
-            let sends = room.handle(now, event);
-            (sends, (!room.playing()).then(|| room.clone()), room.next_alarm())
+            let sends = room.handle(event);
+            (sends, (!room.playing()).then(|| room.clone()))
         };
         let sockets: Vec<(ConnId, WebSocket)> = self
             .state
@@ -76,9 +75,6 @@ impl RoomObject {
         }
         if let Some(room) = save {
             self.state.storage().put("room", &room).await?;
-        }
-        if let Some(at) = alarm {
-            self.state.storage().set_alarm(at.saturating_sub(now) as i64).await?;
         }
         Ok(())
     }
@@ -135,8 +131,4 @@ impl DurableObject for RoomObject {
         }
     }
 
-    async fn alarm(&self) -> Result<Response> {
-        self.run(Event::Timer).await?;
-        Response::ok("")
-    }
 }

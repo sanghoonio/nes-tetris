@@ -424,6 +424,43 @@ mod tests {
         copies[1].tap("Escape", 2);
         assert!(!copies[1].app.versus.in_match());
         assert_eq!(copies[1].view().connection, Connection::Lost("YOU LEFT THE MATCH".into()));
-        run("host sees leave", &mut copies, 10, |c| c[0].app.versus.in_match() && c[0].view().status.contains("LEFT") || !c[0].app.versus.in_match());
+        // The host's match ends at once: BO forfeits.
+        run("host sees the forfeit", &mut copies, 10, |c| c[0].view().status.contains("BO LEFT AND FORFEITS"));
+    }
+
+    /// The host leaves mid-match: the opponent wins by forfeit and becomes host, and the result
+    /// still shows their own board on the left and the host's (stopped) on the right.
+    #[test]
+    fn host_leaving_hands_over() {
+        let server = local_room();
+        let mut host = Copy::new(&server, "ANA");
+        host.open_versus(0);
+        let mut copies = vec![host];
+        run("host in room", &mut copies, 10, |c| c[0].view().connection == Connection::InRoom);
+        let code = copies[0].view().code.clone();
+        let mut joiner = Copy::new(&server, "BO");
+        joiner.open_versus(1);
+        joiner.type_code(&code);
+        copies.push(joiner);
+        run("both seated", &mut copies, 10, |c| c.iter().all(|c| c.view().players.iter().all(|p| p.is_some())));
+        copies[0].tap("Enter", 2);
+        copies[1].tap("Enter", 2);
+        run("match", &mut copies, 20, |c| c.iter().all(|c| c.app.versus.in_match()));
+        let started = Instant::now();
+        run("into play", &mut copies, 20, |_| started.elapsed() > Duration::from_millis(3500));
+        copies[0].tap("Escape", 2);
+        copies[0].tap("Escape", 2);
+        let mut bo = copies.remove(1);
+        let mut only = vec![bo];
+        run("the forfeit", &mut only, 10, |c| c[0].view().status.contains("ANA LEFT AND FORFEITS"));
+        bo = only.remove(0);
+        assert_eq!(bo.view().seat, Some(0), "BO hosts now");
+        assert!(bo.app.versus.in_match(), "the result is showing");
+        bo.idle(1);
+        bo.shot("host_left");
+        // Both boards drawn: BO's own on the left, ANA's stopped one on the right.
+        let lit = |x0: usize| (0..240).any(|y| (x0..x0 + 256).any(|x| bo.last[y * bo.width + x] != 0x0F));
+        assert_eq!(bo.width, 2 * 256 + 8);
+        assert!(lit(0) && lit(256 + 8));
     }
 }

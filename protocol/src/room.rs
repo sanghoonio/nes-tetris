@@ -1,11 +1,11 @@
 //! The room: who's seated, the settings, and the match in progress. Whoever runs it (the Worker,
-//! or a test) numbers the connections, feeds in what happens (`Event`) with the time, sends the
-//! messages that come back, and calls `handle(now, Event::Timer)` at `next_alarm`.
+//! or a test) numbers the connections, feeds in what happens (`Event`), and sends the messages
+//! that come back.
 
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    clean_name, ConnId, FromRoom, Outcome, Pieces, Player, Seat, Settings, ToRoom, BATCH_FRAMES, FORFEIT_MS,
+    clean_name, ConnId, FromRoom, Outcome, Pieces, Player, Seat, Settings, ToRoom, BATCH_FRAMES,
 };
 
 /// Longest input batch the room accepts, in frames.
@@ -16,8 +16,6 @@ pub enum Event {
     Joined(ConnId),
     Left(ConnId),
     Message(ConnId, ToRoom),
-    /// The time `next_alarm` asked for has come.
-    Timer,
 }
 
 /// A message for one connection.
@@ -66,8 +64,8 @@ struct Play {
     inputs: Vec<u8>,
     score: u32,
     over: bool,
-    /// When the player's connection dropped.
-    gone_at: Option<u64>,
+    /// The player's connection dropped (after topping out; before, it's a forfeit).
+    gone: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -105,19 +103,12 @@ impl Room {
         self.conns().is_empty() && self.pending.is_empty()
     }
 
-    /// When to call `handle(now, Event::Timer)`: the earliest forfeit due.
-    pub fn next_alarm(&self) -> Option<u64> {
-        let game = self.game.as_ref()?;
-        game.plays.iter().filter(|p| !p.over).filter_map(|p| p.gone_at).map(|t| t + FORFEIT_MS).min()
-    }
-
-    pub fn handle(&mut self, now: u64, event: Event) -> Vec<Send> {
+    pub fn handle(&mut self, event: Event) -> Vec<Send> {
         let mut out = Out(vec![]);
         match event {
             Event::Joined(conn) => self.pending.push(conn),
-            Event::Left(conn) => self.left(now, conn, &mut out),
+            Event::Left(conn) => self.left(conn, &mut out),
             Event::Message(conn, msg) => self.message(conn, msg, &mut out),
-            Event::Timer => self.timer(now, &mut out),
         }
         out.0
     }
@@ -244,7 +235,7 @@ impl Room {
                         FromRoom::Inputs { seat: s as Seat, frame: 0, buttons: play.inputs.clone(), score: play.score, over: play.over },
                     );
                 }
-                if play.gone_at.is_some() {
+                if play.gone {
                     out.to(conn, FromRoom::Gone { seat: s as Seat });
                 }
             }
@@ -266,7 +257,7 @@ impl Room {
         out.all(self.conns(), self.lobby());
     }
 
-    fn left(&mut self, now: u64, conn: ConnId, out: &mut Out) {
+    fn left(&mut self, conn: ConnId, out: &mut Out) {
         self.pending.retain(|&c| c != conn);
         self.spectators.retain(|&c| c != conn);
         let Some(seat) = self.seat_of(conn) else {
@@ -280,9 +271,9 @@ impl Room {
             out.all(self.conns(), self.lobby());
             return;
         };
-        // During a match the seat is kept, frozen, until the match ends.
+        // During a match the seat is kept until the match ends.
         self.seats[s].as_mut().unwrap().conn = None;
-        game.plays[s].gone_at = Some(now);
+        game.plays[s].gone = true;
         if self.seats.iter().all(|o| o.as_ref().is_some_and(|o| o.conn.is_none())) {
             let id = game.id;
             self.game = None;
@@ -292,20 +283,13 @@ impl Room {
             return;
         }
         out.all(self.conns(), FromRoom::Gone { seat });
-        // A player who left after topping out has a final score; the match goes on.
+        // Leaving before topping out forfeits (there's no coming back). After, the score stands
+        // and the match goes on: the other player can still pass it.
+        if !self.game.as_ref().unwrap().plays[s].over {
+            return self.finish(Outcome::Forfeit { seat }, out);
+        }
         if let Some(outcome) = decide(&self.game.as_ref().unwrap().plays) {
             self.finish(outcome, out);
-        }
-    }
-
-    fn timer(&mut self, now: u64, out: &mut Out) {
-        let Some(game) = &self.game else { return };
-        let due = (0..2).find(|&s| {
-            let p = &game.plays[s];
-            !p.over && p.gone_at.is_some_and(|t| t + FORFEIT_MS <= now)
-        });
-        if let Some(s) = due {
-            self.finish(Outcome::Forfeit { seat: s as Seat }, out);
         }
     }
 

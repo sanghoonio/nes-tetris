@@ -63,7 +63,7 @@ fn play(settings: Settings, seed: u64, late_join: u64, drop_opp: Option<u64>) ->
     let mut room = Room::new(seed);
     let mut clients: Vec<Client> = vec![];
     let add = |clients: &mut Vec<Client>, room: &mut Room, conn, name: &str, watch, latency| {
-        room.handle(0, Event::Joined(conn));
+        room.handle(Event::Joined(conn));
         clients.push(Client {
             conn,
             session: Session::new(rom.clone(), None, name, watch),
@@ -92,7 +92,7 @@ fn play(settings: Settings, seed: u64, late_join: u64, drop_opp: Option<u64>) ->
         if let (Some(s), Some(d)) = (started, drop_opp) {
             if f == s + d {
                 clients.retain(|c| c.conn != 2);
-                from_room.extend(room.handle(now, Event::Left(2)));
+                from_room.extend(room.handle(Event::Left(2)));
             }
         }
         // Deliver what's due.
@@ -102,16 +102,13 @@ fn play(settings: Settings, seed: u64, late_join: u64, drop_opp: Option<u64>) ->
             match to {
                 // A dropped connection's messages in flight are lost.
                 To::Room(conn, _) if drop_opp.is_some() && conn == 2 && !clients.iter().any(|c| c.conn == 2) => {}
-                To::Room(conn, msg) => from_room.extend(room.handle(now, Event::Message(conn, msg))),
+                To::Room(conn, msg) => from_room.extend(room.handle(Event::Message(conn, msg))),
                 To::Client(conn, msg) => {
                     if let Some(c) = clients.iter_mut().find(|c| c.conn == conn) {
                         c.session.receive(now, msg);
                     }
                 }
             }
-        }
-        if room.next_alarm().is_some_and(|t| t <= now) {
-            from_room.extend(room.handle(now, Event::Timer));
         }
         for send in from_room {
             if let Some(c) = clients.iter().find(|c| c.conn == send.to) {
@@ -183,8 +180,8 @@ fn a_match_identical_pieces() {
     println!("identical: {outcome:?} {scores:?}, checks {:?}", clients.iter().map(|c| c.session.verified()).collect::<Vec<_>>());
 }
 
-/// The opponent's connection drops 20 s in: their board freezes for everyone, and 30 s later they
-/// forfeit. Only the host reports, and the watchers' replicas of the frozen game still checked out.
+/// The opponent's connection drops 20 s in: they forfeit at once. Only the host reports, and the
+/// watchers' replicas of the opponent's game checked out up to then.
 #[test]
 fn a_dropped_player_forfeits() {
     let settings = Settings { level: 0, ..Settings::default() };

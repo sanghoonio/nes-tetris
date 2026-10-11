@@ -126,10 +126,10 @@ tops out, the other plays on until they pass that score or top out too. Others c
 (For the Mac app: `desktop/macos/bundle.sh --versus --install`.)
 
 **Playing:** HOST makes a room and shows its four-letter code; the other player chooses JOIN
-and types it, and anyone else can WATCH with it. The host sets the level, whether both players
-get the same pieces, and the rules (DAS, hard drop, ghost and so on) in the room; both players
+and types it, and anyone else can WATCH with it. The host sets the level, SAME SEED (both players get
+the same pieces) and the rules (DAS, hard drop, ghost and so on) in the room; both players
 choose READY and the match starts after a countdown. Your game keys work as usual; there's no
-pausing, and pressing Escape twice leaves the match. After the result, READY again for a rematch.
+pausing, and pressing Escape twice leaves the match, which forfeits it. After the result, READY again for a rematch.
 
 Each player needs their own ROM. Only button presses and scores travel between the games.
 

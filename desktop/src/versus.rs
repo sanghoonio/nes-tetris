@@ -117,7 +117,7 @@ impl Versus {
         let s = &room.session;
         let connection = if *s.phase() == Phase::Connecting { Connection::Connecting } else { Connection::InRoom };
         let players = s.players().clone().map(|p| p.map(|p| (p.name, p.ready)));
-        let names = players.clone().map(|p| p.map_or("-".to_string(), |p| p.0));
+        let names = s.match_names().clone().map(|n| n.unwrap_or_else(|| "-".to_string()));
         let status = match (s.phase(), &room.note) {
             (Phase::Connecting, _) => "CONNECTING TO THE ROOM".to_string(),
             (Phase::Over { outcome, scores, confirmed }, _) => {
@@ -259,7 +259,7 @@ impl Versus {
             }
         }
         // Ours (or the host's, watching) on the left.
-        let left = room.session.seat().unwrap_or(0) as usize;
+        let left = room.session.match_seat().unwrap_or(0) as usize;
         let width = 2 * WIDTH + GAP;
         let mut pixels = vec![0x0Fu8; width * HEIGHT];
         for (seat, x0) in [(left, 0), (1 - left, WIDTH + GAP)] {
@@ -269,8 +269,12 @@ impl Versus {
                 }
             }
             // Each board's player, along its top edge.
-            if let Some(p) = &room.session.players()[seat] {
-                draw_text(&rom, &mut pixels, width, x0 + 128 - 4 * p.name.len(), 1, &p.name, WHITE);
+            if let Some(name) = &room.session.match_names()[seat] {
+                draw_text(&rom, &mut pixels, width, x0 + 128 - 4 * name.len(), 1, name, WHITE);
+            }
+            // A player who left: their board stops, marked.
+            if room.session.gone()[seat] {
+                draw_text(&rom, &mut pixels, width, x0 + PLAYFIELD_CENTRE - 8, 72, "LEFT", WHITE);
             }
         }
         let centre = |text: &str, x0: usize| x0 + 128 - 4 * text.len();
@@ -282,9 +286,9 @@ impl Versus {
                 }
             }
             Phase::Over { outcome, scores, confirmed } => {
-                let names = room.session.players().clone().map(|p| p.map_or("-".to_string(), |p| p.name));
+                let names = room.session.match_names().clone().map(|n| n.unwrap_or_else(|| "-".to_string()));
                 let headline = match outcome {
-                    Outcome::Win { seat } if room.session.seat() == Some(*seat) => "YOU WIN".to_string(),
+                    Outcome::Win { seat } if room.session.match_seat() == Some(*seat) => "YOU WIN".to_string(),
                     Outcome::Win { seat } => format!("{} WINS", names[*seat as usize]),
                     Outcome::Draw => "DRAW".to_string(),
                     Outcome::Forfeit { seat } => format!("{} FORFEITS", names[*seat as usize]),
