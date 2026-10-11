@@ -1,0 +1,4 @@
+# workers-rs needs a newer Rust than the rest of the project; this applies to this folder only.
+[toolchain]
+channel = "1.99.0"
+targets = ["wasm32-unknown-unknown"]

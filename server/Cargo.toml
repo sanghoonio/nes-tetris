@@ -1,0 +1,22 @@
+[package]
+name = "server"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The rooms for online matches, as a Cloudflare Worker with a Durable Object per room"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+protocol = { path = "../protocol" }
+serde = { version = "1", features = ["derive"] }
+worker = "0.8"
+worker-macros = "0.8"
+
+[profile.release]
+opt-level = "s"
+lto = true
+
+# Built only for the Workers runtime (wrangler), so it's its own workspace.
+[workspace]
