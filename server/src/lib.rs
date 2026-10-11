@@ -10,13 +10,9 @@
 
 use std::cell::RefCell;
 
-use protocol::{ConnId, Event, FromRoom, Room, ToRoom};
+use protocol::{room_code, valid_code, ConnId, Event, FromRoom, Room, ToRoom};
 use serde::Serialize;
 use worker::*;
-
-/// Room codes: four letters, without I and O.
-const CODE_LETTERS: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ";
-const CODE_LEN: usize = 4;
 
 fn random() -> f64 {
     js_sys::Math::random()
@@ -33,12 +29,12 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     let path: Vec<String> = url.path().trim_matches('/').split('/').map(str::to_uppercase).collect();
     match path.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
         ["NEW"] => {
-            let code = (0..CODE_LEN).map(|_| CODE_LETTERS[(random() * CODE_LETTERS.len() as f64) as usize] as char).collect();
+            let code = room_code((random() * 9e15) as u64);
             let mut response = Response::from_json(&NewRoom { code })?;
             response.headers_mut().set("Access-Control-Allow-Origin", "*")?;
             Ok(response)
         }
-        ["ROOM", code] if code.len() == CODE_LEN && code.bytes().all(|b| CODE_LETTERS.contains(&b)) => {
+        ["ROOM", code] if valid_code(code) => {
             env.durable_object("ROOMS")?.id_from_name(code)?.get_stub()?.fetch_with_request(req).await
         }
         _ => Response::error("not found", 404),

@@ -181,7 +181,8 @@ impl Room {
             }
             ToRoom::Inputs { frame, buttons, score, over } => {
                 let Some(seat) = seat else { return out.error(conn, "spectators don't play") };
-                let Some(game) = self.game.as_mut() else { return out.error(conn, "no match is on") };
+                // Batches still on their way when a match was decided are of no use now.
+                let Some(game) = self.game.as_mut() else { return };
                 let play = &mut game.plays[seat as usize];
                 if play.over || frame as usize != play.inputs.len() || buttons.len() > MAX_BATCH || (buttons.is_empty() && !over) {
                     return out.error(conn, "inputs out of order");

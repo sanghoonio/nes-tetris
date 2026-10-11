@@ -55,7 +55,7 @@ impl Readable {
 }
 
 impl frontend::Game for Readable {
-    fn frame(&mut self, input: &frontend::Input) -> (Box<[u8; 256 * 240]>, Vec<f32>) {
+    fn frame(&mut self, input: &frontend::Input) -> (Vec<u8>, Vec<f32>) {
         let keys = Keys { held: input.held.clone(), pressed: input.pressed.clone(), unfocused: input.unfocused };
         let out = self.runner.next_frame_keys(keys);
         if let Some(config) = &out.config {
@@ -65,7 +65,7 @@ impl frontend::Game for Readable {
         }
         self.save_changes(&out.ram);
         self.quit = out.quit;
-        (out.pixels, out.samples)
+        ((out.pixels as Box<[u8]>).into_vec(), out.samples)
     }
 
     fn quit(&self) -> bool {

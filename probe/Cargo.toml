@@ -3,8 +3,11 @@ name = "probe"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "A bare client of the game library: one game started directly, with the ROM read at runtime"
+description = "A bare client of the game library: games started directly, with the ROM read at runtime, alone or online"
 
 [dependencies]
 tetris-rs = { path = "../tetris-rs", default-features = false }
 frontend = { path = "../frontend" }
+netplay = { path = "../netplay" }
+protocol = { path = "../protocol" }
+tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }

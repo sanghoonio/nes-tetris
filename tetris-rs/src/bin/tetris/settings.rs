@@ -241,6 +241,7 @@ impl Settings {
             volume: self.volume,
             fullscreen: self.fullscreen,
             integer_scale: self.integer_scale,
+            width: frontend::WIDTH,
         }
     }
 

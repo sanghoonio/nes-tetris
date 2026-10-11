@@ -42,7 +42,7 @@ struct Client {
 impl Client {
     /// Random play: a new choice every 8 frames (a move, a turn, a soft drop, or nothing).
     fn buttons(&mut self, f: u64) -> u8 {
-        if f % 8 == 0 {
+        if f.is_multiple_of(8) {
             let r = self.rng.next();
             self.held = [0, 0, 0x04, 0x02, 0x01, 0x80, 0x40, 0x02, 0x01][(r % 9) as usize];
         }
@@ -62,7 +62,7 @@ fn play(settings: Settings, seed: u64, late_join: u64, drop_opp: Option<u64>) ->
     let rom = rom();
     let mut room = Room::new(seed);
     let mut clients: Vec<Client> = vec![];
-    let mut add = |clients: &mut Vec<Client>, room: &mut Room, conn, name: &str, watch, latency| {
+    let add = |clients: &mut Vec<Client>, room: &mut Room, conn, name: &str, watch, latency| {
         room.handle(0, Event::Joined(conn));
         clients.push(Client {
             conn,

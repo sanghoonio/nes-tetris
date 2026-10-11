@@ -147,6 +147,26 @@ pub enum LeftRight {
     Neither,
 }
 
+/// Room codes: four letters, without I and O.
+pub const CODE_LETTERS: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ";
+pub const CODE_LEN: usize = 4;
+
+/// A room code from random bits.
+pub fn room_code(mut random: u64) -> String {
+    (0..CODE_LEN)
+        .map(|_| {
+            let c = CODE_LETTERS[(random % CODE_LETTERS.len() as u64) as usize] as char;
+            random /= CODE_LETTERS.len() as u64;
+            c
+        })
+        .collect()
+}
+
+/// Whether `code` (upper case) could be a room code.
+pub fn valid_code(code: &str) -> bool {
+    code.len() == CODE_LEN && code.bytes().all(|b| CODE_LETTERS.contains(&b))
+}
+
 /// A name as the game's font can show it: upper case, letters, digits, space, `-` and `.`, at
 /// most `NAME_LEN` long; empty becomes `PLAYER`.
 pub fn clean_name(name: &str) -> String {

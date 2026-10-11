@@ -207,6 +207,15 @@ fn results_are_confirmed_by_the_reports() {
 }
 
 #[test]
+fn late_inputs_after_a_result_are_ignored() {
+    let (mut room, _) = playing(Pieces::Separate);
+    inputs(&mut room, 0, HOST, 0, 15, 100, true);
+    inputs(&mut room, 0, OPP, 0, 15, 200, false);
+    assert!(!room.playing());
+    assert!(inputs(&mut room, 0, OPP, 15, 15, 240, false).is_empty());
+}
+
+#[test]
 fn rematch_after_a_result() {
     let (mut room, _) = playing(Pieces::Separate);
     inputs(&mut room, 0, HOST, 0, 15, 100, true);
@@ -257,4 +266,11 @@ fn messages_as_json() {
     assert_eq!(m.to_json(), r#"{"type":"Inputs","frame":15,"buttons":[0,4,4],"score":120,"over":false}"#);
     assert_eq!(ToRoom::from_json(&m.to_json()), Some(m));
     assert_eq!(ToRoom::from_json("{nonsense"), None);
+}
+
+#[test]
+fn room_codes() {
+    let codes: Vec<String> = (0..1000u64).map(|i| protocol::room_code(i.wrapping_mul(0x9E37_79B9_7F4A_7C15))).collect();
+    assert!(codes.iter().all(|c| protocol::valid_code(c)));
+    assert!(!protocol::valid_code("ABIO") && !protocol::valid_code("abcd") && !protocol::valid_code("ABCDE"));
 }

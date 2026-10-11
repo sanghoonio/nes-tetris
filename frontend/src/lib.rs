@@ -58,17 +58,21 @@ pub struct Options {
     /// Scale by whole numbers only, so every NES pixel is the same size (sharper, with a wider
     /// border).
     pub integer_scale: bool,
+    /// The picture's width in pixels (it's always `HEIGHT` high): `WIDTH` for one NES screen, more
+    /// for several side by side.
+    pub width: usize,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { volume: 1.0, fullscreen: false, integer_scale: false }
+        Options { volume: 1.0, fullscreen: false, integer_scale: false, width: WIDTH }
     }
 }
 
 pub trait Game {
-    /// Run one frame with `input`. Return the finished frame and its audio (mono, [-1, 1]).
-    fn frame(&mut self, input: &Input) -> (Box<[u8; WIDTH * HEIGHT]>, Vec<f32>);
+    /// Run one frame with `input`. Return the finished picture (NES palette indices, `width` ×
+    /// `HEIGHT`, row by row) and its audio (mono, [-1, 1]).
+    fn frame(&mut self, input: &Input) -> (Vec<u8>, Vec<f32>);
 
     /// Checked after each frame: close the window.
     fn quit(&self) -> bool {
@@ -110,7 +114,8 @@ pub fn run<G: Game + 'static>(title: &str, options: Options, make_game: impl FnO
         pad_held: Vec::new(),
         focused: true,
         next_frame: Instant::now(),
-        frame: Box::new([0x0F; WIDTH * HEIGHT]),
+        frame: vec![0x0F; options.width * HEIGHT],
+        width: options.width,
         audio,
         fullscreen: options.fullscreen,
         integer_scale: options.integer_scale,
@@ -131,7 +136,8 @@ struct App<G> {
     pad_held: Vec<String>,
     focused: bool,
     next_frame: Instant,
-    frame: Box<[u8; WIDTH * HEIGHT]>,
+    frame: Vec<u8>,
+    width: usize,
     audio: Audio,
     fullscreen: bool,
     integer_scale: bool,
@@ -145,7 +151,7 @@ impl<G: Game> ApplicationHandler for App<G> {
         }
         let attrs = Window::default_attributes()
             .with_title(&self.title)
-            .with_inner_size(winit::dpi::LogicalSize::new(WIDTH as u32 * SCALE, HEIGHT as u32 * SCALE));
+            .with_inner_size(winit::dpi::LogicalSize::new(self.width as u32 * SCALE, HEIGHT as u32 * SCALE));
         let window = Rc::new(event_loop.create_window(attrs).expect("window"));
         let context = softbuffer::Context::new(window.clone()).expect("softbuffer context");
         self.surface = Some(softbuffer::Surface::new(&context, window.clone()).expect("surface"));
@@ -273,19 +279,20 @@ impl<G> App<G> {
         let (w, h) = (size.width as usize, size.height as usize);
         // Nearest-neighbour scale to fit the window (whole numbers only with `integer_scale`),
         // letterboxed to keep the aspect.
-        let mut scale = (w as f32 / WIDTH as f32).min(h as f32 / HEIGHT as f32);
+        let width = self.width;
+        let mut scale = (w as f32 / width as f32).min(h as f32 / HEIGHT as f32);
         if self.integer_scale && scale >= 1.0 {
             scale = scale.floor();
         }
-        let (ow, oh) = ((WIDTH as f32 * scale) as usize, (HEIGHT as f32 * scale) as usize);
+        let (ow, oh) = ((width as f32 * scale) as usize, (HEIGHT as f32 * scale) as usize);
         let (x0, y0) = ((w - ow) / 2, (h - oh) / 2);
         buf.fill(0);
         for y in 0..oh {
             let sy = (y as f32 / scale) as usize;
-            let src = &self.frame[sy.min(HEIGHT - 1) * WIDTH..][..WIDTH];
+            let src = &self.frame[sy.min(HEIGHT - 1) * width..][..width];
             let dst = &mut buf[(y0 + y) * w + x0..][..ow];
             for (x, px) in dst.iter_mut().enumerate() {
-                let sx = ((x as f32 / scale) as usize).min(WIDTH - 1);
+                let sx = ((x as f32 / scale) as usize).min(width - 1);
                 *px = PALETTE[(src[sx] & 0x3F) as usize];
             }
         }

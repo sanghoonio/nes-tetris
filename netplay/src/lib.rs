@@ -362,7 +362,7 @@ impl Own {
             let frame = self.frames - buttons.len() as u32;
             outbox.push(ToRoom::Inputs { frame, buttons, score, over: self.over });
         }
-        if self.frames % CHECKSUM_FRAMES == 0 {
+        if self.frames.is_multiple_of(CHECKSUM_FRAMES) {
             outbox.push(ToRoom::Checksum { frame: self.frames, hash: checksum(&out.ram) });
         }
         out.samples
@@ -411,7 +411,7 @@ impl Replica {
         self.scores.push(score(&out));
         self.last = Some(out.pixels.clone());
         let frame = self.played as u32;
-        if frame % CHECKSUM_FRAMES == 0 {
+        if frame.is_multiple_of(CHECKSUM_FRAMES) {
             self.computed.insert(frame, checksum(&out.ram));
             return self.check(frame);
         }
