@@ -1,0 +1,12 @@
+[package]
+name = "crossplay"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Checks that a game replays the same natively and as WebAssembly (the test runs it under Node)"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+tetris-rs = { path = "../tetris-rs", default-features = false }
