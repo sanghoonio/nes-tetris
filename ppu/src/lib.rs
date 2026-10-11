@@ -246,8 +246,107 @@ impl Ppu {
         }
     }
 
-    /// Draw scanline `y` from the current state into `self.frame_buf`.
+    /// Draw scanline `y` from the current state into `self.frame_buf`: the background a tile at a
+    /// time, then up to eight sprites.
     fn render_line(&mut self, y: usize) {
+        let mut row = [0u8; WIDTH];
+        let mut backdrop = self.palette[0];
+        // With rendering off, a VRAM address inside palette memory shows that entry instead of
+        // the backdrop (visible while the game uploads a palette).
+        if !self.rendering_enabled() && self.v & 0x3F00 == 0x3F00 {
+            backdrop = self.palette[palette_index(self.v)];
+        }
+        let mut bg_opaque = [false; WIDTH];
+        if self.mask & 0x08 == 0 {
+            row.fill(backdrop);
+        } else {
+            let bg_table = if self.ctrl & 0x10 != 0 { 0x1000 } else { 0 };
+            let scroll_x = ((self.t & 0x1F) << 3 | self.fine_x as u16) as usize
+                + if self.t & 0x0400 != 0 { 256 } else { 0 };
+            let scroll_y = (((self.t >> 5) & 0x1F) << 3 | (self.t >> 12) & 7) as usize
+                + if self.t & 0x0800 != 0 { 240 } else { 0 };
+            let wy = (y + scroll_y) % 480;
+            let ty = (wy % 240) / 8;
+            let mut x = 0;
+            while x < WIDTH {
+                // The run of pixels from here to the end of this tile.
+                let wx = (x + scroll_x) % 512;
+                let first = wx % 8;
+                let n = (8 - first).min(WIDTH - x);
+                let nt = 0x2000 + (wy / 240) as u16 * 0x800 + (wx / 256) as u16 * 0x400;
+                let tx = (wx % 256) / 8;
+                let tile = self.vram[nametable_index(nt + (ty * 32 + tx) as u16, self.mirroring)];
+                let attr = self.vram[nametable_index(nt + 0x3C0 + ((ty / 4) * 8 + tx / 4) as u16, self.mirroring)];
+                let shift = ((ty & 2) << 1) | (tx & 2);
+                let pal = (attr >> shift) & 3;
+                let (lo, hi) = self.tile_row(bg_table + tile as u16 * 16, wy % 8);
+                for i in 0..n {
+                    let c = first + i;
+                    let px = ((lo >> (7 - c)) & 1) | (((hi >> (7 - c)) & 1) << 1);
+                    let at = x + i;
+                    if px == 0 || (at < 8 && self.mask & 0x02 == 0) {
+                        row[at] = backdrop;
+                    } else {
+                        bg_opaque[at] = true;
+                        row[at] = self.palette[(pal * 4 + px) as usize];
+                    }
+                }
+                x += n;
+            }
+        }
+        if self.mask & 0x10 != 0 {
+            let tall = self.ctrl & 0x20 != 0;
+            let h = if tall { 16 } else { 8 };
+            // Sprites are drawn one line below their OAM Y. Lower OAM index wins, so draw from
+            // the back; only the first eight on a line are shown.
+            let mut on_line = [0usize; 8];
+            let mut count = 0;
+            for s in 0..64 {
+                let top = self.oam[s * 4] as usize + 1;
+                if y >= top && y < top + h {
+                    on_line[count] = s;
+                    count += 1;
+                    if count == 8 {
+                        break;
+                    }
+                }
+            }
+            for &s in on_line[..count].iter().rev() {
+                let [sy, tile, attr, sx] =
+                    [self.oam[s * 4], self.oam[s * 4 + 1], self.oam[s * 4 + 2], self.oam[s * 4 + 3]];
+                let row_in = y - (sy as usize + 1);
+                let r = if attr & 0x80 != 0 { h - 1 - row_in } else { row_in };
+                let base = if tall {
+                    ((tile as u16 & 1) * 0x1000) + ((tile as u16 & 0xFE) + (r / 8) as u16) * 16
+                } else {
+                    (if self.ctrl & 0x08 != 0 { 0x1000 } else { 0 }) + tile as u16 * 16
+                };
+                let (lo, hi) = self.tile_row(base, r % 8);
+                for col in 0..8 {
+                    let x = sx as usize + col;
+                    if x >= WIDTH || (x < 8 && self.mask & 0x04 == 0) {
+                        continue;
+                    }
+                    let c = if attr & 0x40 != 0 { 7 - col } else { col };
+                    let px = ((lo >> (7 - c)) & 1) | (((hi >> (7 - c)) & 1) << 1);
+                    if px == 0 || (attr & 0x20 != 0 && bg_opaque[x]) {
+                        continue;
+                    }
+                    row[x] = self.palette[(0x10 + (attr & 3) * 4 + px) as usize];
+                }
+            }
+        }
+        self.frame_buf[y * WIDTH..(y + 1) * WIDTH].copy_from_slice(&row);
+    }
+
+    /// A tile's two bit planes for row `y`.
+    fn tile_row(&self, tile_addr: u16, y: usize) -> (u8, u8) {
+        (self.chr_byte(tile_addr + y as u16), self.chr_byte(tile_addr + y as u16 + 8))
+    }
+
+    /// The renderer `render_line` replaced, pixel by pixel: the reference the tests hold it to.
+    #[cfg(test)]
+    fn render_line_reference(&mut self, y: usize) {
         let mut row = [0u8; WIDTH];
         let mut backdrop = self.palette[0];
         // With rendering off, a VRAM address inside palette memory shows that entry instead of
@@ -321,6 +420,7 @@ impl Ppu {
         self.frame_buf[y * WIDTH..(y + 1) * WIDTH].copy_from_slice(&row);
     }
 
+    #[cfg(test)]
     fn tile_pixel(&self, tile_addr: u16, x: usize, y: usize) -> u8 {
         let lo = self.chr_byte(tile_addr + y as u16);
         let hi = self.chr_byte(tile_addr + y as u16 + 8);
@@ -345,4 +445,50 @@ fn nametable_index(addr: u16, mirroring: u8) -> usize {
         _ => table >> 1,
     };
     page * 0x400 + offset
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Xorshift(u64);
+    impl Xorshift {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+        fn byte(&mut self) -> u8 {
+            self.next() as u8
+        }
+    }
+
+    /// The tile-at-a-time renderer draws exactly what the pixel-by-pixel one did, on random
+    /// screens: any scroll, mirroring, CHR banks, pattern tables, sprite sizes, clipping and
+    /// rendering switches.
+    #[test]
+    fn renders_as_the_reference() {
+        let mut rng = Xorshift(0x9E37_79B9_7F4A_7C15);
+        let chr: Vec<u8> = (0..0x8000).map(|_| rng.byte()).collect();
+        for _ in 0..400 {
+            let mut ppu = Ppu::new(chr.clone());
+            ppu.vram.iter_mut().for_each(|b| *b = rng.byte());
+            ppu.palette.iter_mut().for_each(|b| *b = rng.byte() & 0x3F);
+            ppu.oam.iter_mut().for_each(|b| *b = rng.byte());
+            ppu.ctrl = rng.byte();
+            ppu.mask = rng.byte();
+            ppu.t = rng.next() as u16 & 0x7FFF;
+            ppu.v = rng.next() as u16 & 0x7FFF;
+            ppu.fine_x = rng.byte() & 7;
+            ppu.mirroring = rng.byte() & 3;
+            ppu.chr_banks = [(rng.next() % 8) as usize, (rng.next() % 8) as usize];
+            let mut reference = ppu.clone();
+            for y in 0..HEIGHT {
+                ppu.render_line(y);
+                reference.render_line_reference(y);
+            }
+            assert!(ppu.frame_buf == reference.frame_buf);
+        }
+    }
 }

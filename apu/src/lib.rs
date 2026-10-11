@@ -23,6 +23,20 @@ const TRIANGLE: [u8; 32] = [
 const NOISE_PERIOD: [u16; 16] = [4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068];
 const DMC_RATE: [u16; 16] = [428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54];
 
+/// Clock a channel timer (reloaded with `period` when it reaches 0) `k` times at once. Returns
+/// how many times it reloaded.
+fn advance_timer(timer: &mut u16, period: u16, k: u32) -> u32 {
+    let t = *timer as u32;
+    if k <= t {
+        *timer -= k as u16;
+        return 0;
+    }
+    let after_first = k - t - 1;
+    let len = period as u32 + 1;
+    *timer = (period as u32 - after_first % len) as u16;
+    1 + after_first / len
+}
+
 #[derive(Default, Clone)]
 struct Envelope {
     start: bool,
@@ -120,13 +134,27 @@ impl Pulse {
         self.period < 8 || self.target_period() > 0x7FF
     }
 
-    fn clock_timer(&mut self) {
+    /// Returns whether the output may have changed.
+    fn clock_timer(&mut self) -> bool {
         if self.timer == 0 {
             self.timer = self.period;
             self.step = (self.step + 1) & 7;
+            true
         } else {
             self.timer -= 1;
+            false
         }
+    }
+
+    /// `k` timer clocks at once.
+    fn skip(&mut self, k: u32) {
+        let reloads = advance_timer(&mut self.timer, self.period, k);
+        self.step = ((self.step as u32 + reloads) & 7) as u8;
+    }
+
+    /// Whether a step of the waveform can change the output.
+    fn audible(&self) -> bool {
+        self.length > 0 && !self.muted()
     }
 
     fn clock_sweep(&mut self) {
@@ -188,15 +216,31 @@ impl Triangle {
         }
     }
 
-    fn clock_timer(&mut self) {
+    /// Returns whether the output may have changed.
+    fn clock_timer(&mut self) -> bool {
         if self.timer == 0 {
             self.timer = self.period;
             if self.length > 0 && self.linear > 0 {
                 self.step = (self.step + 1) & 31;
             }
+            true
         } else {
             self.timer -= 1;
+            false
         }
+    }
+
+    /// `k` timer clocks at once.
+    fn skip(&mut self, k: u32) {
+        let reloads = advance_timer(&mut self.timer, self.period, k);
+        if self.length > 0 && self.linear > 0 {
+            self.step = ((self.step as u32 + reloads) & 31) as u8;
+        }
+    }
+
+    /// Whether a timer reload can change the output.
+    fn audible(&self) -> bool {
+        self.length > 0 && self.linear > 0 && self.period >= 2
     }
 
     fn clock_linear(&mut self) {
@@ -251,20 +295,32 @@ impl Noise {
         }
     }
 
-    fn clock_timer(&mut self) {
+    /// Returns whether the output may have changed.
+    fn clock_timer(&mut self) -> bool {
         if self.timer == 0 {
             self.timer = self.period;
             let tap = if self.mode { 6 } else { 1 };
             let feedback = (self.shift ^ (self.shift >> tap)) & 1;
             self.shift = (self.shift >> 1) | (feedback << 14);
+            true
         } else {
             self.timer -= 1;
+            false
         }
     }
 
     fn clock_length(&mut self) {
         if !self.env.loop_flag && self.length > 0 {
             self.length -= 1;
+        }
+    }
+
+    /// `k` timer clocks at once.
+    fn skip(&mut self, k: u32) {
+        let tap = if self.mode { 6 } else { 1 };
+        for _ in 0..advance_timer(&mut self.timer, self.period, k) {
+            let feedback = (self.shift ^ (self.shift >> tap)) & 1;
+            self.shift = (self.shift >> 1) | (feedback << 14);
         }
     }
 
@@ -307,7 +363,8 @@ impl Dmc {
         self.remaining = self.sample_len;
     }
 
-    fn clock_timer(&mut self, fetch: &mut dyn FnMut(u16) -> u8) {
+    /// Returns whether the output may have changed.
+    fn clock_timer(&mut self, fetch: &mut dyn FnMut(u16) -> u8) -> bool {
         if self.buffer.is_none() && self.remaining > 0 {
             self.buffer = Some(fetch(self.addr));
             self.addr = if self.addr == 0xFFFF { 0x8000 } else { self.addr + 1 };
@@ -318,7 +375,7 @@ impl Dmc {
         }
         if self.timer > 0 {
             self.timer -= 1;
-            return;
+            return false;
         }
         self.timer = self.period.saturating_sub(1);
         if !self.silent {
@@ -342,6 +399,7 @@ impl Dmc {
             }
         }
         self.bits -= 1;
+        true
     }
 }
 
@@ -360,8 +418,16 @@ pub struct Apu {
     sample_clock: f64,
     acc: f32,
     acc_n: u32,
+    /// The mixer's output, recomputed only when a channel's output may have changed: every
+    /// cycle's value is the same as mixing afresh, at a fraction of the cost.
+    mixed: f32,
+    stale: bool,
     hp_prev_in: f32,
     hp_prev_out: f32,
+    /// Whether the high-pass has had its first input. The mix has a DC offset from power-on (the
+    /// idle triangle sits mid-level); starting the filter at that level instead of at 0 keeps it
+    /// from coming out as a pop.
+    hp_primed: bool,
     /// Mono samples in [-1, 1] produced since the last [`Apu::take_samples`].
     samples: Vec<f32>,
 }
@@ -389,8 +455,11 @@ impl Apu {
             sample_clock: 0.0,
             acc: 0.0,
             acc_n: 0,
+            mixed: 0.0,
+            stale: true,
             hp_prev_in: 0.0,
             hp_prev_out: 0.0,
+            hp_primed: false,
             samples: Vec::with_capacity(2048),
         }
     }
@@ -401,6 +470,7 @@ impl Apu {
 
     /// A CPU write to $4000-$4017.
     pub fn write(&mut self, addr: u16, v: u8) {
+        self.stale = true;
         match addr {
             0x4000..=0x4003 => self.pulse[0].write(addr - 0x4000, v),
             0x4004..=0x4007 => self.pulse[1].write(addr - 0x4004, v),
@@ -442,6 +512,7 @@ impl Apu {
     }
 
     fn quarter_frame(&mut self) {
+        self.stale = true;
         self.pulse[0].env.clock();
         self.pulse[1].env.clock();
         self.noise.env.clock();
@@ -449,6 +520,7 @@ impl Apu {
     }
 
     fn half_frame(&mut self) {
+        self.stale = true;
         for p in &mut self.pulse {
             p.clock_length();
             p.clock_sweep();
@@ -459,20 +531,86 @@ impl Apu {
 
     /// Advance `cycles` CPU cycles. `fetch` reads CPU memory for DMC samples.
     pub fn clock(&mut self, cycles: u32, fetch: &mut dyn FnMut(u16) -> u8) {
-        for _ in 0..cycles {
-            self.clock_one(fetch);
+        let mut left = cycles;
+        while left > 0 {
+            let quiet = self.quiet_cycles().min(left - 1);
+            if quiet > 0 {
+                self.skip(quiet);
+                left -= quiet;
+            }
+            self.clock_one::<false>(fetch);
+            left -= 1;
         }
     }
 
-    fn clock_one(&mut self, fetch: &mut dyn FnMut(u16) -> u8) {
-        self.triangle.clock_timer();
+    /// How many of the coming cycles can't change the output or need anything but their timers
+    /// counted: none of the audible channels steps its waveform, the DMC neither fetches nor
+    /// shifts, the frame sequencer doesn't fire, and no output sample is due.
+    fn quiet_cycles(&self) -> u32 {
+        let d = &self.dmc;
+        if d.buffer.is_none() && d.remaining > 0 {
+            return 0;
+        }
+        // The cycle (1 = the next) of each coming event.
+        let mut next = d.timer as u32 + 1;
+        if self.triangle.audible() {
+            next = next.min(self.triangle.timer as u32 + 1);
+        }
+        // Pulses and noise are clocked on odd cycles only.
+        let first_odd = if self.odd_cycle { 2 } else { 1 };
+        for p in &self.pulse {
+            if p.audible() {
+                next = next.min(first_odd + 2 * p.timer as u32);
+            }
+        }
+        if self.noise.length > 0 {
+            next = next.min(first_odd + 2 * self.noise.timer as u32);
+        }
+        let end = if self.five_step { 37281 } else { 29829 };
+        let step = [7457, 14913, 22371, end].into_iter().find(|&c| c > self.frame_cycle).unwrap_or(end);
+        next = next.min(step - self.frame_cycle);
+        next = next.min((self.cycles_per_sample - self.sample_clock).ceil().max(1.0) as u32);
+        next - 1
+    }
+
+    /// `k` quiet cycles (see `quiet_cycles`) at once.
+    fn skip(&mut self, k: u32) {
+        if self.stale {
+            self.mixed = self.mix();
+            self.stale = false;
+        }
+        self.triangle.skip(k);
+        let odd = if self.odd_cycle { k / 2 } else { k.div_ceil(2) };
+        if k % 2 == 1 {
+            self.odd_cycle = !self.odd_cycle;
+        }
+        self.pulse[0].skip(odd);
+        self.pulse[1].skip(odd);
+        self.noise.skip(odd);
+        self.dmc.timer -= k as u16;
+        self.frame_cycle += k;
+        self.acc += self.mixed * k as f32;
+        self.acc_n += k;
+        self.sample_clock += k as f64;
+    }
+
+    /// As `clock`, mixing afresh every cycle: the reference the cached mix is tested against.
+    #[cfg(test)]
+    fn clock_reference(&mut self, cycles: u32, fetch: &mut dyn FnMut(u16) -> u8) {
+        for _ in 0..cycles {
+            self.clock_one::<true>(fetch);
+        }
+    }
+
+    fn clock_one<const ALWAYS_MIX: bool>(&mut self, fetch: &mut dyn FnMut(u16) -> u8) {
+        let mut changed = self.triangle.clock_timer();
         self.odd_cycle = !self.odd_cycle;
         if self.odd_cycle {
-            self.pulse[0].clock_timer();
-            self.pulse[1].clock_timer();
-            self.noise.clock_timer();
+            changed |= self.pulse[0].clock_timer();
+            changed |= self.pulse[1].clock_timer();
+            changed |= self.noise.clock_timer();
         }
-        self.dmc.clock_timer(fetch);
+        changed |= self.dmc.clock_timer(fetch);
 
         // Frame sequencer, in CPU cycles.
         self.frame_cycle += 1;
@@ -495,7 +633,11 @@ impl Apu {
             _ => {}
         }
 
-        self.acc += self.mix();
+        if ALWAYS_MIX || changed || self.stale {
+            self.mixed = self.mix();
+            self.stale = false;
+        }
+        self.acc += self.mixed;
         self.acc_n += 1;
         self.sample_clock += 1.0;
         if self.sample_clock >= self.cycles_per_sample {
@@ -504,6 +646,10 @@ impl Apu {
             self.acc = 0.0;
             self.acc_n = 0;
             // ~37 Hz high-pass, as the console's output stage does, to remove DC.
+            if !self.hp_primed {
+                self.hp_primed = true;
+                self.hp_prev_in = x;
+            }
             let y = 0.996 * (self.hp_prev_out + x - self.hp_prev_in);
             self.hp_prev_in = x;
             self.hp_prev_out = y;
@@ -525,5 +671,61 @@ impl Apu {
     /// Drain the samples generated so far.
     pub fn take_samples(&mut self) -> Vec<f32> {
         std::mem::take(&mut self.samples)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Xorshift(u64);
+    impl Xorshift {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+    }
+
+    /// Powered on and left alone, the APU is silent: its DC offset doesn't come out as a pop.
+    #[test]
+    fn no_pop_at_power_on() {
+        let mut apu = Apu::new(48000);
+        apu.clock(29780 * 10, &mut |_| 0);
+        let peak = apu.take_samples().iter().map(|x| x.abs()).fold(0.0, f32::max);
+        assert!(peak < 1e-6, "peak {peak}");
+    }
+
+    /// Jumping ahead through quiet cycles gives the samples clocking and mixing every cycle does
+    /// (to float rounding, from adding a stretch's mix at once), under random register writes to
+    /// every channel (DMC samples included) in both frame sequencer modes.
+    #[test]
+    fn matches_clocking_every_cycle() {
+        let mut rng = Xorshift(0x2545_F491_4F6C_DD1D);
+        let memory: Vec<u8> = (0..0x10000).map(|_| rng.next() as u8).collect();
+        let mut fetch = |a: u16| memory[a as usize];
+        let mut fetch2 = |a: u16| memory[a as usize];
+        let mut apu = Apu::new(48000);
+        let mut reference = Apu::new(48000);
+        for frame in 0..3000 {
+            for _ in 0..rng.next() % 12 {
+                let addr = match rng.next() % 20 {
+                    0..=17 => 0x4000 + (rng.next() % 0x14) as u16,
+                    18 => 0x4015,
+                    _ => 0x4017,
+                };
+                let v = rng.next() as u8;
+                apu.write(addr, v);
+                reference.write(addr, v);
+            }
+            let cycles = 29780 + frame % 2;
+            apu.clock(cycles, &mut fetch);
+            reference.clock_reference(cycles, &mut fetch2);
+            let (a, b) = (apu.take_samples(), reference.take_samples());
+            assert_eq!(a.len(), b.len(), "frame {frame}");
+            let worst = a.iter().zip(&b).map(|(x, y)| (x - y).abs()).fold(0.0, f32::max);
+            assert!(worst < 1e-5, "frame {frame}: off by {worst}");
+        }
     }
 }

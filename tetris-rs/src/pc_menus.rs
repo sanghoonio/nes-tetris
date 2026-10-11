@@ -21,10 +21,10 @@ const ARROW_TILE: u8 = 0x27;
 const FLIP_H: u8 = 0x40;
 const BLANK_TILE: u8 = 0xFF;
 
-/// The pause screen's title and menu, each centred where the original's "PAUSE" is (x 112..152,
-/// y 119). The title says "PAUSED" and sits a row higher, apart from the menu.
-const PAUSE_TITLE: (&str, u8) = ("PAUSED", 111);
-const PAUSE_ITEMS: [(&str, u8); 2] = [("RESUME", 135), ("QUIT", 147)];
+/// The pause screen's title and menu, centred across where the original's "PAUSE" is (x 112..152)
+/// and a row above it (y 119). The title says "PAUSED", with a blank row before the menu.
+const PAUSE_TITLE: (&str, u8) = ("PAUSED", 103);
+const PAUSE_ITEMS: [(&str, u8); 2] = [("RESUME", 127), ("QUIT", 139)];
 const PAUSE_CENTRE: u8 = 132;
 
 /// The title menu, left-aligned under the logo where `PUSH START` was (row 20, columns 7..16).

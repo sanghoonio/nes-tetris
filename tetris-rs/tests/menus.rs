@@ -169,10 +169,10 @@ fn pause_items_centred_under_pause() {
     let out = app.tap("Escape", 5);
     // Leftmost sprite of each row, centred on x 132: RESUME starts at 108, QUIT at 116.
     let left = |y: u8, tile: u8| out.oam.chunks(4).filter(|s| s[0] == y && s[1] == tile).map(|s| s[3]).min();
-    assert_eq!(left(135, 0x1B), Some(108)); // R
-    assert_eq!(left(147, 0x1A), Some(116)); // Q
-    // "PAUSED" a row above where the original's "PAUSE" was, centred on it.
-    assert_eq!(left(111, 0x19), Some(108)); // P
+    assert_eq!(left(127, 0x1B), Some(108)); // R
+    assert_eq!(left(139, 0x1A), Some(116)); // Q
+    // "PAUSED" two rows above where the original's "PAUSE" was, centred on it.
+    assert_eq!(left(103, 0x19), Some(108)); // P
 }
 
 #[test]
