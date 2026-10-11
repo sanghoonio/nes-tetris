@@ -1,5 +1,5 @@
 //! What the game keeps of the user's ROM: the PRG bytes in `rom_data::PRG_RANGES` (data, not the
-//! original's code) and the CHR graphics. `build.rs` extracts these into the binary; `Rom::new`
+//! original's code) and the CHR graphics. `desktop/build.rs` extracts these into the app; `Rom::new`
 //! goes through the same extraction, so the tests run on exactly what the binary holds.
 
 use crate::rom_data::PRG_RANGES;

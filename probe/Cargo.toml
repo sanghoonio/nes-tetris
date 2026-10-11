@@ -6,7 +6,7 @@ publish = false
 description = "A bare client of the game library: games started directly, with the ROM read at runtime, alone or online"
 
 [dependencies]
-tetris-rs = { path = "../tetris-rs", default-features = false }
+tetris-rs = { path = "../tetris-rs" }
 frontend = { path = "../frontend" }
 netplay = { path = "../netplay" }
 protocol = { path = "../protocol" }

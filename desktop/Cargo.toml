@@ -1,0 +1,26 @@
+[package]
+name = "desktop"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The desktop app: the readable game in a window, with settings, saved scores and your ROM's data built in"
+
+[[bin]]
+name = "tetris"
+path = "src/main.rs"
+
+[dependencies]
+tetris-rs = { path = "../tetris-rs" }
+frontend = { path = "../frontend" }
+dirs = "6"
+serde = { version = "1", features = ["derive"] }
+toml = "0.9"
+netplay = { path = "../netplay", optional = true }
+protocol = { path = "../protocol", optional = true }
+
+[features]
+# VERSUS: matches through a room, over the network.
+versus = ["dep:netplay", "dep:protocol", "tetris-rs/versus"]
+
+[build-dependencies]
+sha1_smol = "1"

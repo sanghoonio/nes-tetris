@@ -9,4 +9,4 @@ description = "Checks that a game replays the same natively and as WebAssembly (
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-tetris-rs = { path = "../tetris-rs", default-features = false }
+tetris-rs = { path = "../tetris-rs" }

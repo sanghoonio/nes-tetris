@@ -58,8 +58,9 @@ pub struct Options {
     /// Scale by whole numbers only, so every NES pixel is the same size (sharper, with a wider
     /// border).
     pub integer_scale: bool,
-    /// The picture's width in pixels (it's always `HEIGHT` high): `WIDTH` for one NES screen, more
-    /// for several side by side.
+    /// The picture's width in pixels at the start (it's always `HEIGHT` high): `WIDTH` for one
+    /// NES screen, more for several side by side. A game can change it by returning a picture of
+    /// another width; the window then resizes to keep its scale.
     pub width: usize,
 }
 
@@ -70,7 +71,7 @@ impl Default for Options {
 }
 
 pub trait Game {
-    /// Run one frame with `input`. Return the finished picture (NES palette indices, `width` ×
+    /// Run one frame with `input`. Return the finished picture (NES palette indices, any width ×
     /// `HEIGHT`, row by row) and its audio (mono, [-1, 1]).
     fn frame(&mut self, input: &Input) -> (Vec<u8>, Vec<f32>);
 
@@ -198,7 +199,12 @@ impl<G: Game> ApplicationHandler for App<G> {
             while self.next_frame <= now {
                 let input = self.input();
                 let (frame, samples) = self.game.frame(&input);
+                let width = frame.len() / HEIGHT;
                 self.frame = frame;
+                if width != self.width {
+                    self.width = width;
+                    self.fit_window();
+                }
                 self.audio.push(&samples);
                 self.next_frame += FRAME_TIME;
                 if let Some(options) = self.game.take_options() {
@@ -223,6 +229,26 @@ impl<G: Game> ApplicationHandler for App<G> {
 }
 
 impl<G> App<G> {
+    /// After the picture's width changed: resize the window to keep its height (so its scale),
+    /// narrowing everything if that would be wider than the display. Fullscreen or maximised
+    /// windows stay as they are; the picture fits inside.
+    fn fit_window(&self) {
+        let Some(w) = &self.window else { return };
+        if self.fullscreen || w.is_maximized() {
+            return;
+        }
+        let size = w.inner_size();
+        let (mut width, mut height) = (self.width as f64 * size.height as f64 / HEIGHT as f64, size.height as f64);
+        if let Some(monitor) = w.current_monitor() {
+            let room = monitor.size().width as f64 * 0.95;
+            if width > room {
+                height *= room / width;
+                width = room;
+            }
+        }
+        let _ = w.request_inner_size(winit::dpi::PhysicalSize::new(width as u32, height as u32));
+    }
+
     fn apply_fullscreen(&self) {
         if let Some(w) = &self.window {
             w.set_fullscreen(self.fullscreen.then_some(winit::window::Fullscreen::Borderless(None)));

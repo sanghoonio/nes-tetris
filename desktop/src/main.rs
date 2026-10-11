@@ -1,6 +1,7 @@
 //! Play NES Tetris, reimplemented in readable Rust.
 //!
-//!     cargo run --release -p tetris-rs --bin tetris [path/to/tetris.nes]
+//!     cargo run --release [-- path/to/tetris.nes]
+//!     cargo run --release --features versus     # with VERSUS
 //!
 //! The data and graphics of your ROM (Tetris (USA)), not its code, are built into this program
 //! (see `build.rs`), so it runs on its own, e.g. from the app bundle (`macos/bundle.sh`). A ROM

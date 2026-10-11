@@ -6,7 +6,7 @@ highlight pixel; S and Z are solid blocks with a three-pixel white highlight, in
 The frame is a 3-pixel light-blue band whose corners have a black diagonal seam, like the
 playfield's border.
 
-    uv run --with pillow python3 tetris-rs/macos/icon.py OUT_DIR [--piece t|o|s|z]
+    uv run --with pillow python3 desktop/macos/icon.py OUT_DIR [--piece t|o|s|z]
 
 Writes OUT_DIR/icon.png (1024x1024) and OUT_DIR/Tetris.iconset for `iconutil`.
 """

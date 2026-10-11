@@ -2,7 +2,7 @@
 //!
 //! Nothing from the ROM is in the source. Only its data and graphics are kept, not the
 //! original's code (`rom_extract`); the `tetris` binary embeds those, extracted from the ROM it
-//! was built with (`build.rs`). Tables are read at the addresses in `layout.rs`.
+//! was built with (`desktop/build.rs`). Tables are read at the addresses in `layout.rs`.
 
 use crate::layout;
 use crate::rom_extract::{expand, extract, extracted_len, CHR_SIZE, PRG_SIZE};

@@ -55,7 +55,7 @@ anywhere and run directly.
 
 To get a `Tetris.app` you can open from Finder, Launchpad or Spotlight:
 
-    tetris-rs/macos/bundle.sh --install
+    desktop/macos/bundle.sh --install
 
 This puts the app in `~/Applications`. Without `--install`, the app is left at
 `target/Tetris.app`. Drawing the app icon needs [uv](https://docs.astral.sh/uv/).

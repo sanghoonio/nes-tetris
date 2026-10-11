@@ -2,18 +2,29 @@
 # Build Tetris.app: the readable game with your ROM's data and graphics built in (see build.rs),
 # launchable from Finder, Launchpad or Spotlight. Output: target/Tetris.app (gitignored).
 #
-#     tetris-rs/macos/bundle.sh             # build target/Tetris.app
-#     tetris-rs/macos/bundle.sh --install   # ...and copy it to ~/Applications
+#     desktop/macos/bundle.sh                 # build target/Tetris.app
+#     desktop/macos/bundle.sh --install       # ...and copy it to ~/Applications
+#     desktop/macos/bundle.sh --versus ...    # with VERSUS (online matches)
 set -eu
 cd "$(dirname "$0")/../.."
-cargo build --release -p tetris-rs --bin tetris
+install=no
+features=""
+for arg in "$@"; do
+    case "$arg" in
+        --install) install=yes ;;
+        --versus) features="--features versus" ;;
+        *) echo "unknown option $arg" >&2; exit 2 ;;
+    esac
+done
+# shellcheck disable=SC2086
+cargo build --release -p desktop --bin tetris $features
 
 app=target/Tetris.app
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp target/release/tetris "$app/Contents/MacOS/tetris"
 # The icon: the red Z in the playfield's frame (icon.py).
-uv run --quiet --with pillow python3 tetris-rs/macos/icon.py target/icon --piece z
+uv run --quiet --with pillow python3 desktop/macos/icon.py target/icon --piece z
 iconutil -c icns target/icon/Tetris.iconset -o "$app/Contents/Resources/Tetris.icns"
 cat > "$app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -38,7 +49,7 @@ PLIST
 codesign --force --sign - "$app" >/dev/null 2>&1 || true
 echo "built $app"
 
-if [ "${1:-}" = "--install" ]; then
+if [ "$install" = yes ]; then
     mkdir -p "$HOME/Applications"
     rm -rf "$HOME/Applications/Tetris.app"
     cp -R "$app" "$HOME/Applications/"
