@@ -5,7 +5,7 @@
 //! NES's 60.0988 Hz.
 //!
 //! The window reports the keys held and pressed each frame by name ([`Input`]), gamepads
-//! included; what they mean is the game's business. Quit with Cmd+Q or by closing the window
+//! included; what they mean is the game's business. Quit with Cmd+Q (macOS) or by closing the window
 //! (or when the game asks).
 
 use std::collections::VecDeque;

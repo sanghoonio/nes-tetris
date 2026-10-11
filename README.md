@@ -2,10 +2,7 @@
 
 The 1989 NES version of Tetris, rewritten from scratch as a native desktop game. It plays exactly
 like the original, down to the frame, with a few comforts added on top: proper keyboard
-controls, remappable keys, gamepad support, a settings screen and saved high scores. Two of
-the original's display glitches at very high levels are fixed: the level counter shows the
-real level past 29, and the colours keep cycling every 10 levels past 137. As on the NES, the
-level wraps round to 0 after 255, back to level 0's speed.
+controls, remappable keys, gamepad support, a settings screen and saved high scores.
 
 **You need your own copy of the game.** This project contains no Nintendo or Tetris code, graphics
 or music. When you build it, it reads them from a ROM file of NES Tetris (USA) that you provide.
@@ -16,9 +13,15 @@ Not affiliated with or endorsed by Nintendo or The Tetris Company.
 
 ### What you need
 
-- A Mac. The game is built and tested on macOS. The code isn't Mac-specific, but other
-  systems haven't been tried.
-- [Rust](https://rustup.rs), installed with the one-line command on that page.
+- A Mac, Linux or Windows computer. The game is built and tested on macOS; it also compiles
+  for Linux and Windows, but hasn't been played on them yet.
+- [Rust](https://rustup.rs), installed with the one-line command on that page (on Windows,
+  the installer there, which also asks for Visual Studio's C++ build tools).
+- On Linux, the development packages for sound and gamepads. On Debian or Ubuntu:
+
+      sudo apt install pkg-config libasound2-dev libudev-dev
+
+  (Fedora: `alsa-lib-devel systemd-devel`.)
 - A ROM of **Tetris (USA)** for the NES, as a `.nes` file. The build checks that it's the right
   one and tells you if it isn't.
 
@@ -43,6 +46,11 @@ If your ROM is somewhere else, point the build at it instead of copying it:
 
     TETRIS_ROM=/path/to/your/tetris.nes cargo run --release
 
+(In Windows PowerShell: `$env:TETRIS_ROM="C:\path\to\tetris.nes"; cargo run --release`.)
+
+The finished program is `target/release/tetris` (`tetris.exe` on Windows), which you can copy
+anywhere and run directly.
+
 ### Make it a Mac app
 
 To get a `Tetris.app` you can open from Finder, Launchpad or Spotlight:
@@ -56,7 +64,7 @@ The app contains the graphics and music from your ROM, so don't share it.
 
 ## Controls
 
-The title screen has START, SETTINGS and EXIT. There's no demo playing in the background.
+The title screen has START, SETTINGS and EXIT.
 
 **Menus:** arrow keys to move, Enter to choose, Escape to go back. Enter also skips the opening
 legal screen. On the level select, hold Shift to see levels 10 to 19, and press Shift+Enter to
@@ -83,7 +91,7 @@ cycle a letter, and Enter finishes.
 chooses and the right one goes back. In a game, the right and bottom buttons rotate, the top
 button hard-drops, and Start pauses.
 
-Quit with EXIT, Cmd+Q, or by closing the window.
+Quit with EXIT, by closing the window, or with Cmd+Q on a Mac.
 
 ## Settings
 
@@ -101,4 +109,8 @@ SETTINGS has three pages:
 
 Every setting starts out the way the original game works, so out of the box it plays like the
 NES. Your settings, your last game's choices and your high scores are saved in
-`~/Library/Application Support/Tetris/settings.toml`.
+`settings.toml`, in:
+
+- macOS: `~/Library/Application Support/Tetris/`
+- Linux: `~/.config/Tetris/`
+- Windows: `%APPDATA%\Tetris\`

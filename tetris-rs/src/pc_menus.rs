@@ -21,7 +21,9 @@ const ARROW_TILE: u8 = 0x27;
 const FLIP_H: u8 = 0x40;
 const BLANK_TILE: u8 = 0xFF;
 
-/// "PAUSE" is five sprites at x 112..152, y 119; the menu goes under it, each item centred on it.
+/// The pause screen's title and menu, each centred where the original's "PAUSE" is (x 112..152,
+/// y 119). The title says "PAUSED" and sits a row higher, apart from the menu.
+const PAUSE_TITLE: (&str, u8) = ("PAUSED", 111);
 const PAUSE_ITEMS: [(&str, u8); 2] = [("RESUME", 135), ("QUIT", 147)];
 const PAUSE_CENTRE: u8 = 132;
 
@@ -428,18 +430,14 @@ impl Game {
         }
     }
 
-    /// The pause screen's menu (the app's): RESUME / QUIT under "PAUSE", the same arrows.
+    /// The pause screen's menu (the app's): RESUME / QUIT under "PAUSED", the same arrows.
     /// Enter chooses, Escape resumes. Returns whether to quit the game.
     pub(crate) async fn pause_menu(&mut self) -> bool {
         self.ui.screen = Screen::Pause;
         let mut cursor = 0;
         let quit = loop {
-            self.vars.sprite_x_offset = 0x70;
-            self.vars.sprite_y_offset = 0x77;
-            self.vars.sprite_index_in_oam_content_lookup = 0x05;
-            self.load_sprite_into_oam_staging();
             let left = |text: &str| PAUSE_CENTRE - 4 * text.len() as u8;
-            for (text, y) in PAUSE_ITEMS {
+            for (text, y) in std::iter::once(PAUSE_TITLE).chain(PAUSE_ITEMS) {
                 for (i, t) in self.text_tiles(text).into_iter().enumerate() {
                     self.stage_sprite(y, t, 0, left(text) + 8 * i as u8);
                 }

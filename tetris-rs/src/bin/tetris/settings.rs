@@ -1,5 +1,6 @@
 //! `settings.toml`: keys, volume, rules, the last game's menu choices and the high score table,
-//! kept in `~/Library/Application Support/Tetris/` so they outlast the app (and rebuilds of it).
+//! kept in the system's settings folder (`Settings::dir`) so they outlast the app (and rebuilds
+//! of it).
 //! The settings screen edits them in the game (`tetris_rs::Config`); `config` and `apply`
 //! convert.
 
@@ -170,9 +171,10 @@ impl Default for LastGame {
 const ROWS: usize = 3;
 
 impl Settings {
+    /// `Tetris` in the system's settings folder: `~/Library/Application Support` on macOS,
+    /// `~/.config` (or `$XDG_CONFIG_HOME`) on Linux, `%APPDATA%` on Windows.
     pub fn dir() -> PathBuf {
-        let home = std::env::var_os("HOME").expect("HOME");
-        PathBuf::from(home).join("Library/Application Support/Tetris")
+        dirs::config_dir().expect("no settings folder for this user").join("Tetris")
     }
 
     fn path() -> PathBuf {

@@ -1828,6 +1828,7 @@ name = "tetris-rs"
 version = "0.1.0"
 dependencies = [
  "apu",
+ "dirs",
  "frontend",
  "ppu",
  "recomp",

@@ -144,8 +144,8 @@ fn pause_menu() {
     let mut app = playing(Config::default());
     let out = app.tap("Escape", 5);
     let tiles: Vec<u8> = out.oam.chunks(4).filter(|s| s[0] < 0xEF).map(|s| s[1]).collect();
-    // PAUSE, RESUME and QUIT in sprites.
-    for t in [0x19, 0x1B, 0x0E, 0x1C, 0x1E, 0x16, 0x1A, 0x12, 0x1D] {
+    // PAUSED, RESUME and QUIT in sprites.
+    for t in [0x19, 0x0A, 0x1E, 0x1C, 0x0E, 0x0D, 0x1B, 0x16, 0x1A, 0x12, 0x1D] {
         assert!(tiles.contains(&t), "tile {t:02X} missing from {tiles:02X?}");
     }
     // Escape resumes (and isn't taken as a second pause while still held).
@@ -167,10 +167,12 @@ fn pause_menu() {
 fn pause_items_centred_under_pause() {
     let mut app = playing(Config::default());
     let out = app.tap("Escape", 5);
-    // Leftmost sprite of each row: "PAUSE" spans x 112..152, so RESUME starts at 108, QUIT at 116.
+    // Leftmost sprite of each row, centred on x 132: RESUME starts at 108, QUIT at 116.
     let left = |y: u8, tile: u8| out.oam.chunks(4).filter(|s| s[0] == y && s[1] == tile).map(|s| s[3]).min();
     assert_eq!(left(135, 0x1B), Some(108)); // R
     assert_eq!(left(147, 0x1A), Some(116)); // Q
+    // "PAUSED" a row above where the original's "PAUSE" was, centred on it.
+    assert_eq!(left(111, 0x19), Some(108)); // P
 }
 
 #[test]
