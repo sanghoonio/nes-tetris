@@ -95,9 +95,11 @@ enum Item {
     Reset,
     /// Go to another page.
     Page(usize),
+    /// Back to the title (as Escape).
+    Back,
 }
 
-/// The pages: (header, items). The last item of each goes to the next page.
+/// The pages: (header, items). Each ends with the next page, then BACK.
 const PAGES: [(&str, &[Item]); 3] = [
     (
         "CONTROLS",
@@ -110,6 +112,7 @@ const PAGES: [(&str, &[Item]); 3] = [
             Item::Key(5),
             Item::Key(6),
             Item::Page(1),
+            Item::Back,
         ],
     ),
     (
@@ -124,9 +127,10 @@ const PAGES: [(&str, &[Item]); 3] = [
             Item::NextPiece,
             Item::SaveScores,
             Item::Page(2),
+            Item::Back,
         ],
     ),
-    ("SYSTEM", &[Item::Volume, Item::Fullscreen, Item::PixelScale, Item::Reset, Item::Page(0)]),
+    ("SYSTEM", &[Item::Volume, Item::Fullscreen, Item::PixelScale, Item::Reset, Item::Page(0), Item::Back]),
 ];
 
 fn item_row(i: usize) -> u8 {
@@ -181,6 +185,7 @@ impl Item {
             Item::PixelScale => "PIXEL SCALE",
             Item::Reset => "RESET ALL",
             Item::Page(p) => ["CONTROLS", "GAME SETTINGS", "SYSTEM SETTINGS"][p],
+            Item::Back => "BACK",
         }
     }
 
@@ -204,7 +209,7 @@ impl Item {
             Item::NextPiece => if c.next_piece { "SHOW" } else { "HIDE" }.to_string(),
             Item::Fullscreen => on_off(c.fullscreen),
             Item::PixelScale => if c.integer_scale { "WHOLE" } else { "FIT" }.to_string(),
-            Item::Reset | Item::Page(_) => String::new(),
+            Item::Reset | Item::Page(_) | Item::Back => String::new(),
         }
     }
 
@@ -237,7 +242,7 @@ impl Item {
             Item::NextPiece => c.next_piece = !c.next_piece,
             Item::Fullscreen => c.fullscreen = !c.fullscreen,
             Item::PixelScale => c.integer_scale = !c.integer_scale,
-            Item::Key(_) | Item::Reset | Item::Page(_) => {}
+            Item::Key(_) | Item::Reset | Item::Page(_) | Item::Back => {}
         }
     }
 }
@@ -343,7 +348,7 @@ impl Game {
                     self.vars.sfx_init[1] = SFX_MENU_OPTION;
                     capturing = false;
                 }
-            } else if has(MenuKey::Back) {
+            } else if has(MenuKey::Back) || (has(MenuKey::Confirm) && item == Item::Back) {
                 self.vars.sfx_init[1] = SFX_MENU_SCREEN;
                 self.ui.title_cursor = TITLE_ACTIONS.iter().position(|&a| a == TitleItem::Settings).unwrap();
                 self.ui.screen = Screen::TitleMenu;
@@ -367,7 +372,7 @@ impl Game {
                         cursor = 0;
                         self.queue_page(page);
                     }
-                    Item::Key(_) | Item::Reset | Item::Page(_) => {}
+                    Item::Key(_) | Item::Reset | Item::Page(_) | Item::Back => {}
                     _ => {
                         let mut config = self.options.config.clone();
                         item.step(&mut config, if has(MenuKey::Left) { -1 } else { 1 }, start);

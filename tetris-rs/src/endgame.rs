@@ -28,7 +28,7 @@ const ENDING_SLEEP_TIME_2: u8 = 0x40;
 const ENDING_SLEEP_TIME_3: u8 = 0x02;
 
 /// Name entry: the cursor's sprite (and its flicker), 6 letters per name, the alphabet size.
-const CURSOR_SPRITE: u8 = 0x0E;
+pub(crate) const CURSOR_SPRITE: u8 = 0x0E;
 const CURSOR_SPRITE_FLICKER: u8 = 0x02;
 const CURSOR_FLICKER_MASK: u8 = 0x03;
 const NAME_LETTERS: u8 = 6;

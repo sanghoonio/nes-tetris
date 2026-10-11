@@ -68,7 +68,7 @@ impl Setting {
     fn label(self) -> &'static str {
         match self {
             Setting::Level => "LEVEL",
-            Setting::Pieces => "PIECES",
+            Setting::Pieces => "SAME PIECES",
             Setting::DasDelay => "DAS DELAY",
             Setting::DasRepeat => "DAS REPEAT",
             Setting::LeftRight => "LEFT/RIGHT",
@@ -82,7 +82,7 @@ impl Setting {
         let on_off = |b: bool| if b { "ON" } else { "OFF" }.to_string();
         match self {
             Setting::Level => s.level.to_string(),
-            Setting::Pieces => if s.identical { "SAME" } else { "OWN" }.to_string(),
+            Setting::Pieces => on_off(s.identical),
             Setting::DasDelay => s.das_delay.to_string(),
             Setting::DasRepeat => s.das_repeat.to_string(),
             Setting::LeftRight => match s.left_right {
@@ -206,12 +206,18 @@ impl Game {
             loop {
                 self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
                 if let Some(name) = editing_name.as_mut() {
+                    let before = name.clone();
                     let done = self.edit_text(name, NAME_LEN, |c| crate::saved::NAME_CHARS.contains(c) && c != ',');
-                    self.queue_text(MENU[3].2, INNER.0, &Self::label_value("NAME", &format!("{name}_")));
+                    if *name != before {
+                        self.queue_text(MENU[3].2, INNER.0, &Self::label_value("NAME", name));
+                    }
                     if done {
                         let name = editing_name.take().unwrap().trim().to_string();
                         self.queue_text(MENU[3].2, INNER.0, &Self::label_value("NAME", &name));
                         self.request(VersusRequest::SetName(name));
+                    } else {
+                        let at = name.chars().count().min(NAME_LEN - 1);
+                        self.stage_text_cursor(MENU[3].2, VALUE_COL + at as u8);
                     }
                     continue;
                 }
@@ -251,6 +257,18 @@ impl Game {
             }
         }
         self.ui.screen = Screen::TitleMenu;
+    }
+
+    /// The high-score screen's cursor block on the character cell at (row, col), blinking (8
+    /// frames on, 8 off).
+    fn stage_text_cursor(&mut self, row: u8, col: u8) {
+        if self.vars.frame_counter.0 as u8 & 0x08 != 0 {
+            return;
+        }
+        self.vars.sprite_x_offset = col * 8;
+        self.vars.sprite_y_offset = row * 8;
+        self.vars.sprite_index_in_oam_content_lookup = crate::endgame::CURSOR_SPRITE;
+        self.load_sprite_into_oam_staging();
     }
 
     /// Typing into `text` (at most `max` characters that pass `allowed`, upper case): a key adds

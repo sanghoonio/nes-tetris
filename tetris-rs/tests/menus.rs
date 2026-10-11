@@ -271,13 +271,17 @@ fn settings_rebind_and_back() {
     app.tap("ArrowDown", 3);
     app.tap("ArrowDown", 3); // GAME SETTINGS
     app.tap("Enter", 5);
+    app.tap("ArrowUp", 3); // BACK
     app.tap("ArrowUp", 3); // SYSTEM SETTINGS
     app.tap("Enter", 5);
     let out = app.tap("ArrowLeft", 0);
     assert_eq!(out.config.expect("volume change").volume, 9);
-    // Escape back to the title, cursor on SETTINGS.
-    assert_eq!(mode(&app.tap("Escape", 30)), 1);
+    // BACK (up from the top) to the title, cursor on SETTINGS.
+    app.tap("ArrowUp", 3);
+    assert_eq!(mode(&app.tap("Enter", 30)), 1);
     assert_eq!(mode(&app.tap("Enter", 10)), 1, "SETTINGS again, not START");
+    // Escape leaves too.
+    assert_eq!(mode(&app.tap("Escape", 30)), 1);
 }
 
 #[test]

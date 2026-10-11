@@ -134,6 +134,22 @@ fn title_has_versus() {
     assert!(app.last.as_ref().unwrap().quit);
 }
 
+/// SETTINGS has BACK on each page (the picture is for looking at).
+#[test]
+fn settings_back() {
+    let mut app = App::at_title();
+    app.tap("ArrowDown", 3);
+    app.tap("ArrowDown", 3);
+    app.tap("Enter", 20);
+    app.tap("ArrowDown", 30);
+    for _ in 0..7 {
+        app.tap("ArrowDown", 3);
+    }
+    app.shot("settings_back");
+    app.tap("Enter", 30);
+    assert_eq!(app.mode(), 1, "BACK to the title");
+}
+
 #[test]
 fn naming() {
     let mut app = at_versus_menu();
@@ -145,6 +161,18 @@ fn naming() {
     app.tap("Backspace", 2);
     app.tap("Backspace", 2);
     app.typed("ZOE 99");
+    // The cursor: the high-score screen's block, blinking.
+    let cursor = |app: &App| app.last.as_ref().unwrap().oam.chunks(4).any(|s| s[0] < 0xEF);
+    let shown: Vec<bool> = (0..32)
+        .map(|_| {
+            app.idle(1);
+            cursor(&app)
+        })
+        .collect();
+    assert!(shown.contains(&true) && shown.contains(&false), "blinks: {shown:?}");
+    while !cursor(&app) {
+        app.idle(1);
+    }
     app.shot("naming");
     app.tap("Enter", 3);
     assert_eq!(app.take(), vec![VersusRequest::SetName("ZOE 99".into())]);
