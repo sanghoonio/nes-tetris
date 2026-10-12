@@ -4,7 +4,7 @@
 //! begins. A second game is started directly with what the menus chose and the seed they left,
 //! and both get the same input from then on. Every frame until game over, the picture, video
 //! memory and variables must match, except the variables the menus leave behind
-//! (`MENU_LEFTOVERS`, `sound_engine`). Then the run carries on through the menus to its next game.
+//! (`MENU_LEFTOVERS`, `is_sound_engine`). Then the run carries on through the menus to its next game.
 //!
 //!     cargo test -p tetris-rs --test direct -- --nocapture
 
@@ -12,7 +12,7 @@ use recomp::machine::{BTN_A, BTN_LEFT, BTN_RIGHT, BTN_START};
 use recomp::scripts::{self, Script};
 use std::sync::Arc;
 use tetris_rs::options::Rules;
-use tetris_rs::vars::Player;
+use tetris_rs::vars::{is_sound_engine, Player};
 use tetris_rs::{buttons, FrameOut, GameSetup, Pieces, Rom, Runner, Seed, Vars};
 
 /// Left by the menus and not set by a direct start; none of them feeds play.
@@ -67,23 +67,6 @@ fn ram_range(name: &str) -> std::ops::Range<usize> {
     }
 }
 
-/// The sound engine's state, which differs because the menus' music is still playing as play
-/// begins. Only the sound engine reads it.
-fn sound_engine(name: &str) -> bool {
-    const OTHERS: [&str; 9] = [
-        "audio_tmp",
-        "sound_rng_seed",
-        "current_sound_effect_slot",
-        "current_audio_slot",
-        "audio_initialized",
-        "reset_sq12_for_music",
-        "channel_inhibit",
-        "currently_playing_music_track",
-        "unreferenced_sound_rng_tmp",
-    ];
-    name.starts_with("music_") || name.starts_with("sfx_") || OTHERS.contains(&name)
-}
-
 fn rom() -> Arc<Rom> {
     let path = std::env::var_os("TETRIS_ROM")
         .map(std::path::PathBuf::from)
@@ -105,7 +88,7 @@ fn vars(out: &FrameOut) -> Vars {
 fn var_diffs(a: &[u8; 0x800], b: &[u8; 0x800]) -> Vec<String> {
     let mut out = Vec::new();
     for &(name, addr, size) in Vars::LAYOUT {
-        if MENU_LEFTOVERS.contains(&name) || sound_engine(name) {
+        if MENU_LEFTOVERS.contains(&name) || is_sound_engine(name) {
             continue;
         }
         if ["active", "player1", "player2"].contains(&name) {

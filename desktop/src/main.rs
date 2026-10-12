@@ -61,6 +61,9 @@ impl Readable {
         }
         if ram[0xC0] == MODE_PLAY {
             next.last_game = LastGame::from_game(&saved.choices);
+        } else {
+            // The music can be chosen on the settings screen too.
+            next.last_game.music = LastGame::from_game(&saved.choices).music;
         }
         if next != self.settings {
             self.settings = next;
@@ -81,6 +84,7 @@ impl frontend::Game for Readable {
         #[cfg(feature = "versus")]
         {
             self.versus.poll();
+            self.versus.music = self.settings.last_game.to_game().music_type;
             if self.versus.in_match() {
                 let config = self.settings.config();
                 let frame = versus::Frame { held: &input.held, pressed: &input.pressed, config: &config };
@@ -374,13 +378,13 @@ mod tests {
 
         // The match: every copy goes wide, plays to a result, and comes back to the lobby.
         run("match", &mut copies, 20, |c| c.iter().all(|c| c.app.versus.in_match()));
-        run("wide", &mut copies, 20, |c| c.iter().all(|c| c.width == 2 * 256 + 8));
+        run("wide", &mut copies, 20, |c| c.iter().all(|c| c.width == 2 * 256));
         copies[1].shot("match_countdown");
         let started = Instant::now();
         run("into play", &mut copies, 20, |_| started.elapsed() > Duration::from_millis(4000));
         copies[0].shot("match_playing");
         copies[2].shot("match_watching");
-        run("confirmed", &mut copies, 120, |c| c.iter().all(|c| c.view().status.contains("CONFIRMED")));
+        run("confirmed", &mut copies, 120, |c| c.iter().all(|c| c.app.versus.confirmed()));
         copies[0].shot("match_result");
         for c in copies.iter_mut() {
             c.tap("Enter", 2);
@@ -460,7 +464,7 @@ mod tests {
         bo.shot("host_left");
         // Both boards drawn: BO's own on the left, ANA's stopped one on the right.
         let lit = |x0: usize| (0..240).any(|y| (x0..x0 + 256).any(|x| bo.last[y * bo.width + x] != 0x0F));
-        assert_eq!(bo.width, 2 * 256 + 8);
-        assert!(lit(0) && lit(256 + 8));
+        assert_eq!(bo.width, 2 * 256);
+        assert!(lit(0) && lit(256));
     }
 }

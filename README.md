@@ -102,7 +102,9 @@ SETTINGS has three pages:
   when left and right are both held, the slowdown from holding down with left or right, hard
   drop, a ghost piece showing where the piece will land, showing the next piece, and whether
   to save high scores.
-- **SYSTEM:** volume, fullscreen, pixel scale and resetting everything to the defaults. Pixel
+- **SYSTEM:** volume, music, fullscreen, pixel scale and resetting everything to the defaults.
+  MUSIC is the same choice as the music screen before a game (1, 2, 3 or OFF) and plays it while
+  you choose; it's also what you hear in a versus match. Pixel
   scale chooses how the picture fills the window. FIT makes it as big as possible. WHOLE only
   enlarges it by a whole number (2×, 3×…) so every pixel is the same size and perfectly sharp,
   with a wider border.
@@ -128,7 +130,8 @@ tops out, the other plays on until they pass that score or top out too. Others c
 **Playing:** HOST makes a room and shows its four-letter code; the other player chooses JOIN
 and types it, and anyone else can WATCH with it. The host sets the level, SAME SEED (both players get
 the same pieces) and the rules (DAS, hard drop, ghost and so on) in the room; both players
-choose READY and the match starts after a countdown. Your game keys work as usual; there's no
+choose READY and the match starts after a countdown. The window widens to show both games, joined
+side by side, yours on the left. Your game keys work as usual; there's no
 pausing, and pressing Escape twice leaves the match, which forfeits it. After the result, READY again for a rematch.
 
 Each player needs their own ROM. Only button presses and scores travel between the games.

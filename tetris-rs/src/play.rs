@@ -25,7 +25,7 @@ const SFX_LEVEL_UP: u8 = 0x06;
 const SFX_LOCK: u8 = 0x07;
 const SFX_LINE_CLEARING: u8 = 0x0A;
 const MODE_DEMO: u8 = 5;
-const MUSIC_SILENCE: u8 = 0xFF;
+pub(crate) const MUSIC_SILENCE: u8 = 0xFF;
 
 /// Signed 8-bit "a < b", as the original's `cmp` followed by `bmi`.
 fn signed_lt(a: u8, b: u8) -> bool {

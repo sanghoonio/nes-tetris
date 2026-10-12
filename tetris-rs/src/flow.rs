@@ -329,7 +329,7 @@ impl Game {
         }
     }
 
-    fn play_selected_music(&mut self) {
+    pub(crate) fn play_selected_music(&mut self) {
         let track = self.rom.table(layout::MUSIC_SELECTION_TABLE, self.vars.music_type as usize);
         self.set_music_track(track);
     }

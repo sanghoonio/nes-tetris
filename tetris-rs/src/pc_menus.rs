@@ -77,11 +77,15 @@ pub(crate) const INNER: (u8, usize) = (3, 26);
 const HEADER_ROW: u8 = 4;
 /// Items are double-spaced, like the game's own menus, from row 6.
 const FIRST_ROW: u8 = 6;
+/// BACK (or LEAVE), on every panel screen: the last row inside the frame but one, apart from the
+/// rest.
+pub(crate) const BACK_ROW: u8 = 25;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Item {
     Key(usize),
     Volume,
+    Music,
     SaveScores,
     DasDelay,
     DasRepeat,
@@ -99,7 +103,7 @@ enum Item {
     Back,
 }
 
-/// The pages: (header, items). Each ends with the next page, then BACK.
+/// The pages: (header, items). Each ends with the next page, then BACK (on `BACK_ROW`).
 const PAGES: [(&str, &[Item]); 3] = [
     (
         "CONTROLS",
@@ -130,11 +134,16 @@ const PAGES: [(&str, &[Item]); 3] = [
             Item::Back,
         ],
     ),
-    ("SYSTEM", &[Item::Volume, Item::Fullscreen, Item::PixelScale, Item::Reset, Item::Page(0), Item::Back]),
+    ("SYSTEM", &[Item::Volume, Item::Music, Item::Fullscreen, Item::PixelScale, Item::Reset, Item::Page(0), Item::Back]),
 ];
 
-fn item_row(i: usize) -> u8 {
-    FIRST_ROW + 2 * i as u8
+/// The row of `page`'s `i`th item.
+fn item_row(page: usize, i: usize) -> u8 {
+    if PAGES[page].1[i] == Item::Back {
+        BACK_ROW
+    } else {
+        FIRST_ROW + 2 * i as u8
+    }
 }
 
 /// The menus' state, outside the original's RAM.
@@ -166,6 +175,8 @@ pub(crate) struct Ui {
     pub versus: Option<crate::versus::VersusView>,
     #[cfg(feature = "versus")]
     pub versus_requests: Vec<crate::versus::VersusRequest>,
+    /// The cell (row, column) of a full stop to draw as a colon (the font has none).
+    pub colon: Option<(u8, u8)>,
 }
 
 impl Item {
@@ -173,6 +184,7 @@ impl Item {
         match self {
             Item::Key(i) => ACTIONS[i],
             Item::Volume => "VOLUME",
+            Item::Music => "MUSIC",
             Item::SaveScores => "SAVE SCORES",
             Item::DasDelay => "DAS DELAY",
             Item::DasRepeat => "DAS REPEAT",
@@ -189,11 +201,13 @@ impl Item {
         }
     }
 
-    fn value(self, c: &Config) -> String {
+    /// The value shown; `music` is the game's music type (0..=2 music 1..3, 3 off).
+    fn value(self, c: &Config, music: u8) -> String {
         let on_off = |b: bool| if b { "ON" } else { "OFF" }.to_string();
         match self {
             Item::Key(i) => key_label(&c.keys[i]),
             Item::Volume => c.volume.to_string(),
+            Item::Music => ["1", "2", "3", "OFF"][music.min(3) as usize].to_string(),
             Item::SaveScores => on_off(c.save_high_scores),
             Item::DasDelay => c.rules.das_delay.to_string(),
             Item::DasRepeat => c.rules.das_repeat.to_string(),
@@ -242,7 +256,7 @@ impl Item {
             Item::NextPiece => c.next_piece = !c.next_piece,
             Item::Fullscreen => c.fullscreen = !c.fullscreen,
             Item::PixelScale => c.integer_scale = !c.integer_scale,
-            Item::Key(_) | Item::Reset | Item::Page(_) | Item::Back => {}
+            Item::Key(_) | Item::Music | Item::Reset | Item::Page(_) | Item::Back => {}
         }
     }
 }
@@ -328,6 +342,8 @@ impl Game {
         self.memset_page(0x00, 0x02, 0x02);
         let mut cursor = 0;
         let mut capturing = false;
+        // MUSIC plays what it's set to, as the music menu does, until the panel is left.
+        let mut previewed = false;
         loop {
             self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
             let keys = self.menu_pressed();
@@ -350,6 +366,9 @@ impl Game {
                 }
             } else if has(MenuKey::Back) || (has(MenuKey::Confirm) && item == Item::Back) {
                 self.vars.sfx_init[1] = SFX_MENU_SCREEN;
+                if previewed {
+                    self.set_music_track(crate::play::MUSIC_SILENCE);
+                }
                 self.ui.title_cursor = TITLE_ACTIONS.iter().position(|&a| a == TitleItem::Settings).unwrap();
                 self.ui.screen = Screen::TitleMenu;
                 return;
@@ -361,7 +380,7 @@ impl Game {
                 match item {
                     Item::Key(_) if start => {
                         capturing = true;
-                        self.queue_text(item_row(cursor), VALUE_COL, &format!("{:<1$}", "PRESS KEY", VALUE_WIDTH));
+                        self.queue_text(item_row(page, cursor), VALUE_COL, &format!("{:<1$}", "PRESS KEY", VALUE_WIDTH));
                     }
                     Item::Reset if start => {
                         self.set_config(Config::default());
@@ -372,11 +391,21 @@ impl Game {
                         cursor = 0;
                         self.queue_page(page);
                     }
+                    // The game's own choice (the music menu's), kept with the last game's.
+                    Item::Music => {
+                        let dir = if has(MenuKey::Left) { -1 } else { 1 };
+                        self.vars.music_type = (self.vars.music_type as i8 + dir).rem_euclid(4) as u8;
+                        self.play_selected_music();
+                        previewed = true;
+                        let value = item.value(&self.options.config, self.vars.music_type);
+                        self.queue_text(item_row(page, cursor), VALUE_COL, &format!("{value:<VALUE_WIDTH$}"));
+                    }
                     Item::Key(_) | Item::Reset | Item::Page(_) | Item::Back => {}
                     _ => {
                         let mut config = self.options.config.clone();
                         item.step(&mut config, if has(MenuKey::Left) { -1 } else { 1 }, start);
-                        self.queue_text(item_row(cursor), VALUE_COL, &format!("{:<1$}", item.value(&config), VALUE_WIDTH));
+                        let value = item.value(&config, self.vars.music_type);
+                        self.queue_text(item_row(page, cursor), VALUE_COL, &format!("{value:<VALUE_WIDTH$}"));
                         if config != self.options.config {
                             self.set_config(config);
                         }
@@ -385,7 +414,7 @@ impl Game {
                 self.vars.sfx_init[1] = if matches!(item, Item::Page(_)) && start { SFX_MENU_SCREEN } else { SFX_MENU_OPTION };
             }
             let item = PAGES[page].1[cursor];
-            self.stage_menu_arrows(item_row(cursor), LABEL_COL, item.label().len());
+            self.stage_menu_arrows(item_row(page, cursor), LABEL_COL, item.label().len());
         }
     }
 
@@ -394,17 +423,19 @@ impl Game {
         let (header, items) = PAGES[page];
         let (_, width) = INNER;
         let mut lines = vec![(HEADER_ROW, format!("{:^1$}", header, width))];
-        // Every page's rows, so a shorter page blanks what a longer one left.
-        let rows = PAGES.iter().map(|(_, items)| items.len()).max().unwrap();
+        let label_at = (LABEL_COL - INNER.0) as usize;
+        let value_at = (VALUE_COL - LABEL_COL) as usize;
+        let line = |item: &Item| {
+            let text = format!("{:label_at$}{:<value_at$}{}", "", item.label(), item.value(&self.options.config, self.vars.music_type));
+            format!("{text:<width$}")
+        };
+        // Every page's rows above BACK, so a shorter page blanks what a longer one left.
+        let rows = PAGES.iter().map(|(_, items)| items.len() - 1).max().unwrap();
         for i in 0..rows {
-            let label_at = (LABEL_COL - INNER.0) as usize;
-            let value_at = (VALUE_COL - LABEL_COL) as usize;
-            let text = match items.get(i) {
-                Some(item) => format!("{:label_at$}{:<value_at$}{}", "", item.label(), item.value(&self.options.config)),
-                None => String::new(),
-            };
-            lines.push((item_row(i), format!("{text:<width$}")));
+            let text = items.get(i).filter(|&&item| item != Item::Back).map_or(format!("{:width$}", ""), line);
+            lines.push((FIRST_ROW + 2 * i as u8, text));
         }
+        lines.push((BACK_ROW, line(&Item::Back)));
         lines
     }
 
@@ -420,6 +451,7 @@ impl Game {
     /// finished picture in a narrow font of its own, the original digits' height, in each
     /// cell's own colours.
     pub(crate) fn draw_overlays(&self, pixels: &mut [u8]) {
+        self.draw_colon(pixels);
         if self.vars.game_mode != 3 || !self.shift_held() || self.vars.current_ppu_mask & 0x08 == 0 {
             return;
         }
@@ -450,6 +482,24 @@ impl Game {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /// A colon over the full stop at `Ui::colon`: its dot, again higher up.
+    fn draw_colon(&self, pixels: &mut [u8]) {
+        let Some((row, col)) = self.ui.colon else { return };
+        let (x0, y0) = (col as usize * 8, row as usize * 8);
+        let w = crate::frame::WIDTH;
+        // The dot sits at the letters' foot; the copy starts a row below their top.
+        let tile = self.text_tiles(".")[0] as usize;
+        let lit = |r: usize| (self.rom.chr[tile * 16 + r] | self.rom.chr[tile * 16 + r + 8]) != 0;
+        let Some(top) = (0..8).find(|&r| lit(r)).filter(|&t| t >= 3) else { return };
+        let bottom = (0..8).rev().find(|&r| lit(r)).unwrap();
+        let up = top - 1;
+        for r in top..=bottom {
+            for x in x0..x0 + 8 {
+                pixels[(y0 + r - up) * w + x] = pixels[(y0 + r) * w + x];
             }
         }
     }

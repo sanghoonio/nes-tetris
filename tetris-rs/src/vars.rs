@@ -313,6 +313,23 @@ ram_struct! {
 /// returns aren't part of its effect.
 pub const SCRATCH: &[&str] = &["tmp1", "tmp2", "tmp3", "audio_tmp"];
 
+/// The sound engine's variables, including the music chosen. Only the sound engine reads them,
+/// so games that play different music, or are at different points in it, agree on the rest.
+pub fn is_sound_engine(name: &str) -> bool {
+    const OTHERS: [&str; 9] = [
+        "audio_tmp",
+        "sound_rng_seed",
+        "current_sound_effect_slot",
+        "current_audio_slot",
+        "audio_initialized",
+        "reset_sq12_for_music",
+        "channel_inhibit",
+        "currently_playing_music_track",
+        "unreferenced_sound_rng_tmp",
+    ];
+    name.starts_with("music_") || name.starts_with("sfx_") || OTHERS.contains(&name)
+}
+
 impl Vars {
     pub fn from_ram(ram: &[u8; 0x800]) -> Self {
         Self::load(ram)

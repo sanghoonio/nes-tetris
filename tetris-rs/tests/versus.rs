@@ -150,6 +150,39 @@ fn settings_back() {
     assert_eq!(app.mode(), 1, "BACK to the title");
 }
 
+/// MUSIC on the SYSTEM page sets the game's music choice and plays it until the panel is left.
+#[test]
+fn settings_music() {
+    let mut app = App::at_title();
+    app.tap("ArrowDown", 3);
+    app.tap("ArrowDown", 3);
+    app.tap("Enter", 20);
+    // CONTROLS' page link, then GAME's: SYSTEM.
+    for _ in 0..7 {
+        app.tap("ArrowDown", 3);
+    }
+    app.tap("Enter", 5);
+    for _ in 0..8 {
+        app.tap("ArrowDown", 3);
+    }
+    app.tap("Enter", 5);
+    app.tap("ArrowDown", 3);
+    let vars = |app: &App| Vars::from_ram(&app.last.as_ref().unwrap().ram);
+    assert_eq!(vars(&app).music_type, 0);
+    app.tap("ArrowRight", 20);
+    assert_eq!(vars(&app).music_type, 1);
+    assert_ne!(vars(&app).currently_playing_music_track, 0, "music 2 plays");
+    app.tap("ArrowLeft", 3);
+    app.tap("ArrowLeft", 20);
+    assert_eq!(vars(&app).music_type, 3, "wraps to OFF");
+    app.tap("ArrowLeft", 20);
+    app.shot("settings_system");
+    app.tap("Escape", 30);
+    assert_eq!(app.mode(), 1);
+    assert_eq!(vars(&app).music_type, 2, "the choice stays");
+    assert_eq!(vars(&app).currently_playing_music_track, 0, "and the title is quiet");
+}
+
 #[test]
 fn naming() {
     let mut app = at_versus_menu();

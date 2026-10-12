@@ -10,7 +10,7 @@
 use crate::flow::{CHR_TITLE_MENU, SFX_MENU_OPTION, SFX_MENU_SCREEN};
 use crate::options::LeftRight;
 use crate::pc_input::{MenuKey, Screen};
-use crate::pc_menus::{INNER, LABEL_COL, RENDER_SETTINGS, VALUE_COL, VALUE_WIDTH};
+use crate::pc_menus::{BACK_ROW, INNER, LABEL_COL, RENDER_SETTINGS, VALUE_COL, VALUE_WIDTH};
 use crate::versus::{Connection, RoomSettings, VersusRequest, VersusView, CODE_LEN, CODE_LETTERS, NAME_LEN};
 use crate::{layout, Game};
 
@@ -30,16 +30,16 @@ const MENU: [(MenuItem, &str, u8); 5] = [
     (MenuItem::Join, "JOIN", 10),
     (MenuItem::Watch, "WATCH", 12),
     (MenuItem::Name, "NAME", 14),
-    (MenuItem::Back, "BACK", 16),
+    (MenuItem::Back, "BACK", BACK_ROW),
 ];
 
-/// The lobby's rows: players, the room's settings (single-spaced), READY, LEAVE, the status.
-const PLAYER_ROWS: [u8; 2] = [6, 7];
-const WATCHING_ROW: u8 = 8;
-const FIRST_SETTING_ROW: u8 = 10;
-const READY_ROW: u8 = 19;
-const LEAVE_ROW: u8 = 21;
-const STATUS_ROWS: [u8; 3] = [23, 24, 25];
+/// The lobby's rows under the room code: the status, the players, the room's settings
+/// (single-spaced), READY, and LEAVE on `BACK_ROW`.
+const STATUS_ROWS: [u8; 2] = [6, 7];
+const PLAYER_ROWS: [u8; 2] = [9, 10];
+const WATCHING_ROW: u8 = 11;
+const FIRST_SETTING_ROW: u8 = 13;
+const READY_ROW: u8 = 22;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Setting {
@@ -139,7 +139,7 @@ impl LobbyItem {
         match self {
             LobbyItem::Setting(s) => FIRST_SETTING_ROW + SETTINGS.iter().position(|&x| x == s).unwrap() as u8,
             LobbyItem::Ready => READY_ROW,
-            LobbyItem::Leave => LEAVE_ROW,
+            LobbyItem::Leave => BACK_ROW,
         }
     }
 
@@ -342,11 +342,32 @@ impl Game {
     /// Everything in the lobby's panel for `view`, line by line.
     fn lobby_lines(view: &VersusView) -> Vec<(u8, String)> {
         let header = match &view.connection {
-            Connection::InRoom => format!("ROOM {}", view.code),
+            // The colon is drawn over the full stop (`draw_overlays`).
+            Connection::InRoom => format!("ROOM CODE. {}", view.code),
             Connection::Connecting => "CONNECTING".to_string(),
             Connection::None | Connection::Lost(_) => "NOT CONNECTED".to_string(),
         };
         let mut lines = vec![(HEADER_ROW, Self::centred(&header))];
+        // The status, word-wrapped onto two lines.
+        let status = match &view.connection {
+            Connection::Lost(why) => why.clone(),
+            _ => view.status.clone(),
+        };
+        let mut wrapped: Vec<String> = vec![String::new()];
+        for word in status.split_whitespace() {
+            let last = wrapped.last_mut().unwrap();
+            if !last.is_empty() && last.len() + 1 + word.len() > INNER.1 {
+                wrapped.push(word.to_string());
+            } else {
+                if !last.is_empty() {
+                    last.push(' ');
+                }
+                last.push_str(word);
+            }
+        }
+        for (i, row) in STATUS_ROWS.into_iter().enumerate() {
+            lines.push((row, Self::centred(wrapped.get(i).map_or("", String::as_str))));
+        }
         for (i, row) in PLAYER_ROWS.into_iter().enumerate() {
             let text = match &view.players[i] {
                 Some((name, ready)) => {
@@ -371,27 +392,7 @@ impl Game {
             None => Self::label_value("", ""),
         };
         lines.push((READY_ROW, ready_line));
-        lines.push((LEAVE_ROW, Self::label_value("LEAVE", "")));
-        // The status, word-wrapped onto three lines.
-        let status = match &view.connection {
-            Connection::Lost(why) => why.clone(),
-            _ => view.status.clone(),
-        };
-        let mut wrapped: Vec<String> = vec![String::new()];
-        for word in status.split_whitespace() {
-            let last = wrapped.last_mut().unwrap();
-            if !last.is_empty() && last.len() + 1 + word.len() > INNER.1 {
-                wrapped.push(word.to_string());
-            } else {
-                if !last.is_empty() {
-                    last.push(' ');
-                }
-                last.push_str(word);
-            }
-        }
-        for (i, row) in STATUS_ROWS.into_iter().enumerate() {
-            lines.push((row, Self::centred(wrapped.get(i).map_or("", String::as_str))));
-        }
+        lines.push((BACK_ROW, Self::label_value("LEAVE", "")));
         lines
     }
 
@@ -441,6 +442,7 @@ impl Game {
                 }
             }
             shown = lines;
+            self.ui.colon = shown[0].1.find('.').map(|i| (HEADER_ROW, INNER.0 + i as u8));
             let items = Self::lobby_items(&view);
             // Arriving in the room (seated): the cursor starts on READY.
             let has_ready = items.contains(&LobbyItem::Ready);
@@ -456,6 +458,7 @@ impl Game {
             let has = |k| keys.contains(&k);
             if has(MenuKey::Back) || (has(MenuKey::Confirm) && at == LobbyItem::Leave) {
                 self.vars.sfx_init[1] = SFX_MENU_SCREEN;
+                self.ui.colon = None;
                 self.request(VersusRequest::Leave);
                 return;
             } else if has(MenuKey::Up) || has(MenuKey::Down) {

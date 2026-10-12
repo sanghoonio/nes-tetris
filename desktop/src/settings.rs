@@ -343,7 +343,7 @@ impl Settings {
 }
 
 impl LastGame {
-    fn to_game(&self) -> Choices {
+    pub fn to_game(&self) -> Choices {
         Choices {
             game_type: (self.game_type.eq_ignore_ascii_case("B")) as u8,
             music_type: match self.music.as_str() {

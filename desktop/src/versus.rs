@@ -19,7 +19,7 @@ use tetris_rs::{Config, Rom};
 use crate::settings;
 
 /// Columns of black between the two boards.
-const GAP: usize = 8;
+const GAP: usize = 0;
 /// How long the result stays over the boards (unless Enter is pressed first).
 const RESULT_MS: u64 = 6000;
 /// The middle of the playfield on the game screen, in pixels from its left.
@@ -34,6 +34,8 @@ pub struct Versus {
     /// The room server and the name, for this run (the saved ones unless overridden).
     pub server: String,
     pub name: String,
+    /// The music the player's game plays in a match (the game's music choice: 0..=2, 3 off).
+    pub music: u8,
     room: Option<Room>,
     /// A connection that failed or ended, until the player leaves the lobby.
     lost: Option<String>,
@@ -62,7 +64,7 @@ pub struct Frame<'a> {
 
 impl Versus {
     pub fn new(rom: Arc<Rom>, sample_rate: Option<u32>, server: String, name: String) -> Self {
-        Versus { rom, sample_rate, start: Instant::now(), server, name, room: None, lost: None }
+        Versus { rom, sample_rate, start: Instant::now(), server, name, music: 0, room: None, lost: None }
     }
 
     fn now(&self) -> u64 {
@@ -88,7 +90,9 @@ impl Versus {
             match event {
                 LinkEvent::Message(msg) => room.session.receive(now, msg),
                 LinkEvent::Closed(why) => {
-                    self.lost = Some(why.to_uppercase());
+                    eprintln!("versus: {why}");
+                    let reached = !matches!(room.session.phase(), Phase::Connecting);
+                    self.lost = Some(if reached { "LOST THE CONNECTION" } else { "COULD NOT REACH THE SERVER" }.into());
                     self.room = None;
                     return;
                 }
@@ -126,15 +130,11 @@ impl Versus {
                     Outcome::Draw => format!("A DRAW AT {}", scores[0]),
                     Outcome::Forfeit { seat } => format!("{} LEFT AND FORFEITS", names[*seat as usize]),
                 };
-                let check = match confirmed {
-                    Some(true) => ". CONFIRMED",
-                    Some(false) => ". DISPUTED",
-                    None => "",
-                };
+                let check = if *confirmed == Some(false) { ". DISPUTED" } else { "" };
                 format!("{what}{check}. READY FOR A REMATCH")
             }
             (_, Some(note)) => note.clone(),
-            _ if players[1].is_none() => format!("WAITING FOR A PLAYER. THE CODE IS {}", room.code),
+            _ if players[1].is_none() => "WAITING FOR A PLAYER".to_string(),
             _ if s.seat().is_none() => "WATCHING".to_string(),
             _ => "WAITING FOR BOTH PLAYERS TO READY UP".to_string(),
         };
@@ -208,6 +208,7 @@ impl Versus {
         let now = self.now();
         let in_match = self.in_match();
         let Some(room) = self.room.as_mut() else { return };
+        room.session.set_music(self.music);
         if !in_match {
             room.session.tick(now, 0);
         }
@@ -296,11 +297,7 @@ impl Versus {
                 let lines = [
                     headline,
                     format!("{} - {}", scores[left], scores[1 - left]),
-                    match confirmed {
-                        Some(true) => "CONFIRMED".into(),
-                        Some(false) => "DISPUTED".into(),
-                        None => String::new(),
-                    },
+                    if *confirmed == Some(false) { "DISPUTED".into() } else { String::new() },
                 ];
                 // Over each board's playfield (columns 12..=21 of the game screen).
                 for x0 in [0, WIDTH + GAP] {
@@ -317,6 +314,14 @@ impl Versus {
             draw_text(&rom, &mut pixels, width, centre(text, 0), 224, text, WHITE);
         }
         (pixels, std::mem::take(&mut view.samples))
+    }
+}
+
+/// Whether the last match's result has been confirmed by the room.
+#[cfg(test)]
+impl Versus {
+    pub fn confirmed(&self) -> bool {
+        self.room.as_ref().is_some_and(|r| matches!(r.session.phase(), Phase::Over { confirmed: Some(true), .. }))
     }
 }
 

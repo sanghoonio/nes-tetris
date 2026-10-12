@@ -16,10 +16,11 @@ pub mod local;
 pub use link::{Link, LinkEvent};
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use protocol::{FromRoom, Outcome, Player, Seat, Settings, ToRoom, BATCH_FRAMES, CHECKSUM_FRAMES};
 use tetris_rs::options::{LeftRight, Rules};
+use tetris_rs::vars::is_sound_engine;
 use tetris_rs::{FrameOut, GameSetup, Pieces, Rom, Runner, Seed, Vars};
 
 pub const WIDTH: usize = tetris_rs::frame::WIDTH;
@@ -83,6 +84,8 @@ pub struct Session {
     /// Who played the match (or is playing it), as it started: a player who leaves loses their
     /// seat, but the result still names them.
     match_names: [Option<String>; 2],
+    /// The music the player's own game plays (0..=2, 3 off); replicas play none that's heard.
+    music: u8,
     outbox: Vec<ToRoom>,
     notes: Vec<Note>,
 }
@@ -135,9 +138,15 @@ impl Session {
             match_seat: None,
             gone: [false; 2],
             match_names: [None, None],
+            music: 0,
             outbox: vec![ToRoom::Hello { name: name.to_string(), watch }],
             notes: vec![],
         }
+    }
+
+    /// The music for the player's own games from the next match on (0..=2 music 1..3, 3 off).
+    pub fn set_music(&mut self, music: u8) {
+        self.music = music.min(3);
     }
 
     pub fn phase(&self) -> &Phase {
@@ -289,7 +298,8 @@ impl Session {
             if now >= at {
                 self.phase = Phase::Playing;
                 if let Some(s) = self.match_seat {
-                    let runner = Runner::start_game(self.rom.clone(), self.sample_rate, self.setup(s as usize));
+                    let setup = GameSetup { music: self.music, ..self.setup(s as usize) };
+                    let runner = Runner::start_game(self.rom.clone(), self.sample_rate, setup);
                     self.own = Some(Own { runner, scores: vec![0], batch: vec![], frames: 0, over: false, last: None });
                 }
             }
@@ -480,7 +490,20 @@ fn score(out: &FrameOut) -> u32 {
     bcd.iter().rev().fold(0, |acc, &b| acc * 100 + (b >> 4) as u32 * 10 + (b & 15) as u32)
 }
 
-/// FNV-1a over the game's RAM.
+/// FNV-1a over the game's RAM, less the sound engine's (each player picks their own music).
 fn checksum(ram: &[u8; 0x800]) -> u64 {
-    ram.iter().fold(0xCBF2_9CE4_8422_2325, |h, &b| (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01B3))
+    static SOUND: OnceLock<[bool; 0x800]> = OnceLock::new();
+    let sound = SOUND.get_or_init(|| {
+        let mut sound = [false; 0x800];
+        for &(name, addr, size) in Vars::LAYOUT {
+            if is_sound_engine(name) {
+                sound[addr..addr + size].fill(true);
+            }
+        }
+        sound
+    });
+    ram.iter()
+        .zip(sound)
+        .filter(|(_, &s)| !s)
+        .fold(0xCBF2_9CE4_8422_2325, |h, (&b, _)| (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01B3))
 }

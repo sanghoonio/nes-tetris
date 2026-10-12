@@ -64,9 +64,12 @@ fn play(settings: Settings, seed: u64, late_join: u64, drop_opp: Option<u64>) ->
     let mut clients: Vec<Client> = vec![];
     let add = |clients: &mut Vec<Client>, room: &mut Room, conn, name: &str, watch, latency| {
         room.handle(Event::Joined(conn));
+        let mut session = Session::new(rom.clone(), None, name, watch);
+        // Each player their own music (the replicas play music 1): the checksums leave it out.
+        session.set_music(conn as u8 % 4);
         clients.push(Client {
             conn,
-            session: Session::new(rom.clone(), None, name, watch),
+            session,
             latency,
             rng: Xorshift(seed * 31 + conn),
             held: 0,
