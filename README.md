@@ -129,9 +129,10 @@ tops out, the other plays on until they pass that score or top out too. Others c
 
 **Playing:** HOST makes a room and shows its four-letter code; the other player chooses JOIN
 and types it, and anyone else can WATCH with it. The host sets the level, SAME SEED (both players get
-the same pieces) and the rules (DAS, hard drop, ghost and so on) in the room; both players
-choose READY and the match starts after a countdown. The window widens to show both games, joined
-side by side, yours on the left. Your game keys work as usual; there's no
+the same pieces; on unless turned off) and the rules (DAS, hard drop, ghost and so on) in the room; both players
+choose READY and the match starts after a countdown. The window widens to show both playfields
+side by side, yours on the left, with each player's score, next piece and level on their outer
+side (the piece statistics aren't shown). Your game keys work as usual; there's no
 pausing, and pressing Escape twice leaves the match, which forfeits it. After the result, READY again for a rematch.
 
 Each player needs their own ROM. Only button presses and scores travel between the games.

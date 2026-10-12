@@ -18,12 +18,37 @@ use tetris_rs::{Config, Rom};
 
 use crate::settings;
 
-/// Columns of black between the two boards.
-const GAP: usize = 0;
+/// Each board in a match, as strips of the game screen's columns (from x, to x) laid side by side.
+/// Ours is mirrored: a column of background, the panel (TOP and SCORE, NEXT, LEVEL) on the
+/// outside, then the playfield with LINES above it. The opponent's is as the game draws it, after
+/// a column of background. The statistics and A-TYPE are left out, so the playfields meet in the
+/// middle.
+const OURS: [(usize, usize); 3] = [(0, 8), (184, 256), (88, 184)];
+const THEIRS: [(usize, usize); 2] = [(0, 8), (88, 256)];
+/// The playfield's strip on the game screen.
+const PLAYFIELD: (usize, usize) = (88, 184);
+/// The match picture's width.
+pub const MATCH_WIDTH: usize = 2 * 176;
 /// How long the result stays over the boards (unless Enter is pressed first).
 const RESULT_MS: u64 = 6000;
 /// The middle of the playfield on the game screen, in pixels from its left.
 const PLAYFIELD_CENTRE: usize = 136;
+
+/// Where a board's strips go: (from x, to x, at x) for a board starting at `x0`, and where its
+/// playfield's middle lands.
+fn place(strips: &[(usize, usize)], x0: usize) -> (Vec<(usize, usize, usize)>, usize) {
+    let mut at = x0;
+    let mut centre = 0;
+    let mut placed = vec![];
+    for &(from, to) in strips {
+        placed.push((from, to, at));
+        if (from..to).contains(&PLAYFIELD.0) {
+            centre = at + PLAYFIELD_CENTRE - from;
+        }
+        at += to - from;
+    }
+    (placed, centre)
+}
 /// How long Escape's "again to quit" lasts.
 const ESCAPE_MS: u64 = 2000;
 
@@ -128,10 +153,11 @@ impl Versus {
                 let what = match outcome {
                     Outcome::Win { seat } => format!("{} WON {} TO {}", names[*seat as usize], scores[*seat as usize], scores[1 - *seat as usize]),
                     Outcome::Draw => format!("A DRAW AT {}", scores[0]),
-                    Outcome::Forfeit { seat } => format!("{} LEFT AND FORFEITS", names[*seat as usize]),
+                    Outcome::Forfeit { seat } => format!("{} LEFT", names[*seat as usize]),
                 };
                 let check = if *confirmed == Some(false) { ". DISPUTED" } else { "" };
-                format!("{what}{check}. READY FOR A REMATCH")
+                let next = if players.iter().all(Option::is_some) { "READY FOR A REMATCH" } else { "WAITING FOR A PLAYER" };
+                format!("{what}{check}. {next}")
             }
             (_, Some(note)) => note.clone(),
             _ if players[1].is_none() => "WAITING FOR A PLAYER".to_string(),
@@ -261,29 +287,35 @@ impl Versus {
         }
         // Ours (or the host's, watching) on the left.
         let left = room.session.match_seat().unwrap_or(0) as usize;
-        let width = 2 * WIDTH + GAP;
+        let width = MATCH_WIDTH;
         let mut pixels = vec![0x0Fu8; width * HEIGHT];
-        for (seat, x0) in [(left, 0), (1 - left, WIDTH + GAP)] {
+        let ours = place(&OURS, 0);
+        let theirs = place(&THEIRS, MATCH_WIDTH / 2);
+        let centres = [ours.1, theirs.1];
+        for (seat, (strips, middle)) in [(left, &ours), (1 - left, &theirs)] {
             if let Some(board) = &view.boards[seat] {
-                for y in 0..HEIGHT {
-                    pixels[y * width + x0..][..WIDTH].copy_from_slice(&board[y * WIDTH..][..WIDTH]);
+                for &(from, to, at) in strips {
+                    for y in 0..HEIGHT {
+                        pixels[y * width + at..][..to - from].copy_from_slice(&board[y * WIDTH + from..][..to - from]);
+                    }
                 }
             }
-            // Each board's player, along its top edge.
+            // Each board's player, above its playfield.
             if let Some(name) = &room.session.match_names()[seat] {
-                draw_text(&rom, &mut pixels, width, x0 + 128 - 4 * name.len(), 1, name, WHITE);
+                draw_text(&rom, &mut pixels, width, middle - 4 * name.len(), 1, name, WHITE);
             }
-            // A player who left: their board stops, marked.
-            if room.session.gone()[seat] {
-                draw_text(&rom, &mut pixels, width, x0 + PLAYFIELD_CENTRE - 8, 72, "LEFT", WHITE);
+            // A player who left after topping out: their board stops, marked. (One who left
+            // before forfeits, which the result says.)
+            let forfeited = matches!(room.session.phase(), Phase::Over { outcome: Outcome::Forfeit { seat: s }, .. } if *s as usize == seat);
+            if room.session.gone()[seat] && !forfeited {
+                draw_text(&rom, &mut pixels, width, middle - 8, 72, "LEFT", WHITE);
             }
         }
-        let centre = |text: &str, x0: usize| x0 + 128 - 4 * text.len();
         match room.session.phase() {
             Phase::Countdown { at } => {
                 let n = at.saturating_sub(now).div_ceil(1000).to_string();
-                for x0 in [0, WIDTH + GAP] {
-                    draw_text(&rom, &mut pixels, width, centre(&n, x0), 112, &n, WHITE);
+                for middle in centres {
+                    draw_text(&rom, &mut pixels, width, middle - 4 * n.len(), 112, &n, WHITE);
                 }
             }
             Phase::Over { outcome, scores, confirmed } => {
@@ -292,18 +324,17 @@ impl Versus {
                     Outcome::Win { seat } if room.session.match_seat() == Some(*seat) => "YOU WIN".to_string(),
                     Outcome::Win { seat } => format!("{} WINS", names[*seat as usize]),
                     Outcome::Draw => "DRAW".to_string(),
-                    Outcome::Forfeit { seat } => format!("{} FORFEITS", names[*seat as usize]),
+                    Outcome::Forfeit { seat } => format!("{} LEFT", names[*seat as usize]),
                 };
                 let lines = [
                     headline,
                     format!("{} - {}", scores[left], scores[1 - left]),
                     if *confirmed == Some(false) { "DISPUTED".into() } else { String::new() },
                 ];
-                // Over each board's playfield (columns 12..=21 of the game screen).
-                for x0 in [0, WIDTH + GAP] {
+                // Over each playfield.
+                for middle in centres {
                     for (i, line) in lines.iter().filter(|l| !l.is_empty()).enumerate() {
-                        let x = x0 + PLAYFIELD_CENTRE - 4 * line.len();
-                        draw_text(&rom, &mut pixels, width, x, 96 + 12 * i, line, WHITE);
+                        draw_text(&rom, &mut pixels, width, middle.saturating_sub(4 * line.len()), 96 + 12 * i, line, WHITE);
                     }
                 }
             }
@@ -311,7 +342,7 @@ impl Versus {
         }
         if room.escape_at.is_some_and(|t| now < t + ESCAPE_MS) {
             let text = "ESC AGAIN TO QUIT";
-            draw_text(&rom, &mut pixels, width, centre(text, 0), 224, text, WHITE);
+            draw_text(&rom, &mut pixels, width, width / 2 - 4 * text.len(), 224, text, WHITE);
         }
         (pixels, std::mem::take(&mut view.samples))
     }
@@ -320,6 +351,10 @@ impl Versus {
 /// Whether the last match's result has been confirmed by the room.
 #[cfg(test)]
 impl Versus {
+    pub fn playing(&self) -> bool {
+        self.room.as_ref().is_some_and(|r| *r.session.phase() == Phase::Playing)
+    }
+
     pub fn confirmed(&self) -> bool {
         self.room.as_ref().is_some_and(|r| matches!(r.session.phase(), Phase::Over { confirmed: Some(true), .. }))
     }

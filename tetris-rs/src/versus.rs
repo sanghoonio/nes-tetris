@@ -72,11 +72,11 @@ pub struct RoomSettings {
 }
 
 impl Default for RoomSettings {
-    /// Level 18, separate pieces, the original rules.
+    /// Level 18, the same pieces for both, the original rules.
     fn default() -> Self {
         RoomSettings {
             level: 18,
-            identical: false,
+            identical: true,
             das_delay: 16,
             das_repeat: 6,
             left_right: LeftRight::Both,

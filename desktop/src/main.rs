@@ -378,7 +378,7 @@ mod tests {
 
         // The match: every copy goes wide, plays to a result, and comes back to the lobby.
         run("match", &mut copies, 20, |c| c.iter().all(|c| c.app.versus.in_match()));
-        run("wide", &mut copies, 20, |c| c.iter().all(|c| c.width == 2 * 256));
+        run("wide", &mut copies, 20, |c| c.iter().all(|c| c.width == versus::MATCH_WIDTH));
         copies[1].shot("match_countdown");
         let started = Instant::now();
         run("into play", &mut copies, 20, |_| started.elapsed() > Duration::from_millis(4000));
@@ -429,7 +429,7 @@ mod tests {
         assert!(!copies[1].app.versus.in_match());
         assert_eq!(copies[1].view().connection, Connection::Lost("YOU LEFT THE MATCH".into()));
         // The host's match ends at once: BO forfeits.
-        run("host sees the forfeit", &mut copies, 10, |c| c[0].view().status.contains("BO LEFT AND FORFEITS"));
+        run("host sees the forfeit", &mut copies, 10, |c| c[0].view().status.contains("BO LEFT. WAITING FOR A PLAYER"));
     }
 
     /// The host leaves mid-match: the opponent wins by forfeit and becomes host, and the result
@@ -450,21 +450,23 @@ mod tests {
         copies[0].tap("Enter", 2);
         copies[1].tap("Enter", 2);
         run("match", &mut copies, 20, |c| c.iter().all(|c| c.app.versus.in_match()));
+        // A moment into play (random play at level 18 can top out within a second).
+        run("into play", &mut copies, 20, |c| c.iter().all(|c| c.app.versus.playing()));
         let started = Instant::now();
-        run("into play", &mut copies, 20, |_| started.elapsed() > Duration::from_millis(3500));
+        run("a moment in", &mut copies, 20, |_| started.elapsed() > Duration::from_millis(300));
         copies[0].tap("Escape", 2);
         copies[0].tap("Escape", 2);
         let mut bo = copies.remove(1);
         let mut only = vec![bo];
-        run("the forfeit", &mut only, 10, |c| c[0].view().status.contains("ANA LEFT AND FORFEITS"));
+        run("the forfeit", &mut only, 10, |c| c[0].view().status.contains("ANA LEFT. WAITING FOR A PLAYER"));
         bo = only.remove(0);
         assert_eq!(bo.view().seat, Some(0), "BO hosts now");
         assert!(bo.app.versus.in_match(), "the result is showing");
         bo.idle(1);
         bo.shot("host_left");
         // Both boards drawn: BO's own on the left, ANA's stopped one on the right.
-        let lit = |x0: usize| (0..240).any(|y| (x0..x0 + 256).any(|x| bo.last[y * bo.width + x] != 0x0F));
-        assert_eq!(bo.width, 2 * 256);
-        assert!(lit(0) && lit(256));
+        let lit = |x0: usize| (0..240).any(|y| (x0..x0 + versus::MATCH_WIDTH / 2).any(|x| bo.last[y * bo.width + x] != 0x0F));
+        assert_eq!(bo.width, versus::MATCH_WIDTH);
+        assert!(lit(0) && lit(versus::MATCH_WIDTH / 2));
     }
 }

@@ -234,7 +234,7 @@ fn hosting_and_the_lobby() {
     app.tap("ArrowDown", 2);
     app.tap("Enter", 2);
     // Changes build on each other before the room confirms them.
-    assert_eq!(app.take(), vec![VersusRequest::Settings(RoomSettings { level: 19, identical: true, ..RoomSettings::default() })]);
+    assert_eq!(app.take(), vec![VersusRequest::Settings(RoomSettings { level: 19, identical: false, ..RoomSettings::default() })]);
     // LEAVE: back to the VERSUS menu.
     app.tap("Escape", 20);
     assert_eq!(app.take(), vec![VersusRequest::Leave]);

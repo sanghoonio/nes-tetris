@@ -102,7 +102,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { level: 18, pieces: Pieces::Separate, rules: Rules::default() }
+        Settings { level: 18, pieces: Pieces::Identical, rules: Rules::default() }
     }
 }
 
