@@ -42,7 +42,7 @@ pub struct Versus {
 }
 
 /// The deployed Worker.
-pub const SERVER: &str = "wss://nes-tetris.sanghoonio.workers.dev";
+pub const SERVER: &str = "wss://nes-tetris.online";
 
 impl Default for Versus {
     fn default() -> Self {

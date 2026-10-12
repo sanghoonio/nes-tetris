@@ -186,7 +186,7 @@ To try it out on one computer, open two copies with different names:
 
 ## In a browser
 
-You can also play at **https://nes-tetris.sanghoonio.workers.dev**. Load your ROM the first time.
+You can also play at **https://nes-tetris.online**. Load your ROM the first time.
 Browser and desktop players can play each other.
 
 ## For developers
