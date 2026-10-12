@@ -29,16 +29,19 @@ export default function App() {
   );
 }
 
-/// Asks for the player's ROM, once: the panel is the place to drop it, or click to choose it.
+/// INSERT ROM: the panel is where the ROM file goes (dropped, or chosen with a click). Asked
+/// once; the browser keeps it.
 function RomPage({ onRom }: { onRom: (rom: Uint8Array) => void }) {
   const [error, setError] = useState<string | null>(null);
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    document.title = "Insert ROM";
+  }, []);
   const take = async (file: File | undefined) => {
     if (!file) return;
     const rom = new Uint8Array(await file.arrayBuffer());
-    const problem = await checkRom(rom);
-    if (problem) setError(`That isn't Tetris (USA): ${problem}.`);
+    if (await checkRom(rom)) setError("This ROM won't run. It needs Tetris (USA).");
     else onRom(rom);
   };
   return (
@@ -57,11 +60,8 @@ function RomPage({ onRom }: { onRom: (rom: Uint8Array) => void }) {
           void take(e.dataTransfer.files[0]);
         }}
       >
-        <h1>Tetris</h1>
-        <p>NES Tetris, rebuilt to run in your browser, with your own copy of the game.</p>
-        <p>Drop your Tetris (USA) ROM here, or click to choose it.</p>
+        <p>Insert ROM</p>
         {error && <p className="error">{error}</p>}
-        <p>It stays in this browser, so you're asked only once. It's never uploaded.</p>
         <input ref={input} type="file" accept=".nes" hidden onChange={(e) => void take(e.target.files?.[0])} />
       </div>
     </div>
@@ -73,6 +73,9 @@ function RomPage({ onRom }: { onRom: (rom: Uint8Array) => void }) {
 function Game({ rom, onForget }: { rom: Uint8Array; onForget: () => void }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [run, setRun] = useState(0);
+  useEffect(() => {
+    document.title = "Tetris";
+  }, []);
   useEffect(() => {
     let runner: Runner | null = null;
     let stopped = false;
@@ -92,7 +95,7 @@ function Game({ rom, onForget }: { rom: Uint8Array; onForget: () => void }) {
       </div>
       <div className="corner">
         <button onClick={() => void document.documentElement.requestFullscreen().catch(() => {})}>Fullscreen</button>
-        <button onClick={onForget}>Use another ROM</button>
+        <button onClick={onForget}>Eject</button>
       </div>
     </>
   );

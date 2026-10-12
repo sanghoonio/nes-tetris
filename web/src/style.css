@@ -84,19 +84,16 @@ body,
   cursor: pointer;
 }
 
+.rom .panel p {
+  margin: 0;
+}
+
+.rom .panel .error {
+  margin-top: calc(var(--px) * 12);
+}
+
 .rom .panel.over::before {
   --yellow: var(--blue);
-}
-
-.rom h1 {
-  font-size: calc(var(--px) * 16);
-  line-height: calc(var(--px) * 16);
-  font-weight: normal;
-  margin: 0 0 calc(var(--px) * 12);
-}
-
-.rom p {
-  margin: calc(var(--px) * 8) 0;
 }
 
 .error {
