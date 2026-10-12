@@ -3,3 +3,5 @@ dist
 # Built from engine/ by `npm run engine`.
 src/engine
 *.tsbuildinfo
+# Written by font/make_font.py --preview.
+font/preview.png

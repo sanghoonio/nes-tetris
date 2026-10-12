@@ -90,7 +90,8 @@ export class Runner {
     this.draw = canvas.getContext("2d")!;
   }
 
-  /// Start the game on `canvas` (call from a click: browsers start sound only then).
+  /// Start the game on `canvas`. Its sound starts with the first key, click or touch: browsers
+  /// allow sound only once the page has been used.
   static async start(canvas: HTMLCanvasElement, rom: Uint8Array, onQuit: () => void): Promise<Runner> {
     const audio = new AudioContext();
     await audio.audioWorklet.addModule("/audio.js");
@@ -103,6 +104,10 @@ export class Runner {
     const runner = new Runner(canvas, engine, audio, sound, gain, onQuit);
     runner.gain.gain.value = engine.volume();
     runner.listen();
+    if (audio.state !== "running") {
+      const resume = () => void audio.resume();
+      for (const type of ["keydown", "pointerdown", "touchstart"]) runner.on(window, type, resume);
+    }
     runner.frame = requestAnimationFrame((t) => runner.tick(t));
     return runner;
   }

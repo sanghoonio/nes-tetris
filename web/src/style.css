@@ -1,11 +1,32 @@
+/* Brickface: the page's own pixel typeface (font/), drawn on an 8-pixel grid, so it's crisp at
+   multiples of 8px. */
+@font-face {
+  font-family: "Brickface";
+  src: url("/fonts/brickface.woff2") format("woff2");
+  font-display: block;
+}
+
+:root {
+  /* One of the font's pixels, and the frame's. */
+  --px: 2px;
+  --white: #eceeec;
+  --yellow: #ccd278;
+  --red: #ec6a64;
+  --blue: #a0d6e4;
+}
+
 html,
 body,
 #root {
   margin: 0;
   height: 100%;
   background: #000;
-  color: #ececec;
-  font-family: ui-monospace, Menlo, monospace;
+  color: var(--white);
+  font-family: "Brickface", ui-monospace, monospace;
+  font-size: calc(var(--px) * 8);
+  line-height: calc(var(--px) * 12);
+  text-transform: uppercase;
+  -webkit-font-smoothing: none;
 }
 
 .game {
@@ -21,48 +42,73 @@ body,
   display: block;
 }
 
-.overlay {
-  position: fixed;
-  inset: 0;
+.rom {
+  min-height: 100%;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1rem;
-  text-align: center;
-  background: rgba(0, 0, 0, 0.75);
+  padding: calc(var(--px) * 16);
+  box-sizing: border-box;
 }
 
-.rom {
-  max-width: 34rem;
-  margin: 0 auto;
-  padding: 3rem 1.5rem;
-  line-height: 1.5;
+/* The settings panel's frame, as the game draws it: a dotted line two pixels thick, solid at
+   the corners, four pixels in from the panel's edge. */
+.panel {
+  position: relative;
+  background: #000;
+  padding: calc(var(--px) * 20) calc(var(--px) * 24);
 }
 
-.drop {
-  margin: 1.5rem 0;
-  padding: 2.5rem 1rem;
-  border: 2px dashed #555;
+.panel::before {
+  --dots-across: repeating-linear-gradient(90deg, var(--yellow) 0 var(--px), transparent var(--px) calc(var(--px) * 2));
+  --dots-down: repeating-linear-gradient(180deg, var(--yellow) 0 var(--px), transparent var(--px) calc(var(--px) * 2));
+  --corner: linear-gradient(var(--yellow), var(--yellow));
+  content: "";
+  position: absolute;
+  inset: calc(var(--px) * 4);
+  pointer-events: none;
+  background:
+    var(--corner) top left / calc(var(--px) * 3) calc(var(--px) * 2) no-repeat,
+    var(--corner) top right / calc(var(--px) * 3) calc(var(--px) * 2) no-repeat,
+    var(--corner) bottom left / calc(var(--px) * 3) calc(var(--px) * 2) no-repeat,
+    var(--corner) bottom right / calc(var(--px) * 3) calc(var(--px) * 2) no-repeat,
+    var(--dots-across) top left / 100% calc(var(--px) * 2) no-repeat,
+    var(--dots-across) bottom left / 100% calc(var(--px) * 2) no-repeat,
+    var(--dots-down) top left / calc(var(--px) * 2) 100% no-repeat,
+    var(--dots-down) top right / calc(var(--px) * 2) 100% no-repeat;
+}
+
+.rom .panel {
+  max-width: calc(var(--px) * 8 * 34);
   text-align: center;
   cursor: pointer;
 }
 
-.drop.over {
-  border-color: #a0d6e4;
+.rom .panel.over::before {
+  --yellow: var(--blue);
+}
+
+.rom h1 {
+  font-size: calc(var(--px) * 16);
+  line-height: calc(var(--px) * 16);
+  font-weight: normal;
+  margin: 0 0 calc(var(--px) * 12);
+}
+
+.rom p {
+  margin: calc(var(--px) * 8) 0;
 }
 
 .error {
-  color: #ec6a64;
+  color: var(--red);
 }
 
 .corner {
   position: fixed;
-  right: 0.75rem;
-  bottom: 0.5rem;
+  right: calc(var(--px) * 6);
+  bottom: calc(var(--px) * 4);
   display: flex;
-  gap: 0.75rem;
-  font-size: 0.8rem;
+  gap: calc(var(--px) * 8);
   opacity: 0.35;
 }
 
@@ -70,18 +116,16 @@ body,
   opacity: 1;
 }
 
-button,
-.link {
+button {
   font: inherit;
+  text-transform: inherit;
   color: inherit;
   background: none;
-  border: 1px solid #555;
-  padding: 0.35rem 0.8rem;
+  border: none;
+  padding: 0;
   cursor: pointer;
 }
 
-.corner button {
-  border: none;
-  padding: 0;
-  text-decoration: underline;
+button:hover {
+  color: var(--yellow);
 }
