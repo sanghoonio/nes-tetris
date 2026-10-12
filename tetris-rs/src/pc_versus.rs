@@ -392,7 +392,7 @@ impl Game {
 
     /// A room's row: host, players, level, and in WATCH its state.
     fn room_text(room: &ListedRoom, watch: bool) -> String {
-        let mut text = format!("{:<8} {}/2 LV{:02}", room.host, room.players, room.level);
+        let mut text = format!("{:<8} {}/2 LVL{:02}", room.host, room.players, room.level);
         if watch {
             text.push(' ');
             text.push_str(match room.state {
