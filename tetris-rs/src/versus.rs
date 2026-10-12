@@ -41,8 +41,9 @@ pub struct VersusView {
     pub settings: RoomSettings,
     /// A line about what's happening (waiting for a player, ready for a rematch...).
     pub status: String,
-    /// The last match's result, if there's one to show.
-    pub result: String,
+    /// The players' matches here so far: the score between them ("ANA 1 - 0 BO"), or who of
+    /// them left. One or two lines, or none.
+    pub series: Vec<String>,
 }
 
 /// What the player asked for this frame.

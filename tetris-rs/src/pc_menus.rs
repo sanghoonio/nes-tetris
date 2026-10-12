@@ -20,6 +20,9 @@ pub(crate) const RENDER_SETTINGS: u8 = 5;
 const ARROW_TILE: u8 = 0x27;
 const FLIP_H: u8 = 0x40;
 const BLANK_TILE: u8 = 0xFF;
+/// At the start of a line for `put_text` / `queue_text`: shift the row half a tile right once
+/// drawn. A line of odd length can't be centred on the tile grid; centred with this, it is.
+pub(crate) const HALF: char = '\u{1}';
 /// The panel's text colour (the music box palette's white).
 const TEXT_WHITE: u8 = 0x30;
 
@@ -179,6 +182,9 @@ pub(crate) struct Ui {
     pub versus_requests: Vec<crate::versus::VersusRequest>,
     /// The cell (row, column) of a full stop to draw as a colon (the font has none).
     pub colon: Option<(u8, u8)>,
+    /// Panel rows drawn half a tile right (`HALF`), and changes to that for the next NMI.
+    nudged: [bool; 30],
+    nudge_queue: Vec<(u8, bool)>,
     /// The cell (row, column) of a typing cursor: an underline (the font has none), flickering
     /// as the menu arrows do.
     pub underline: Option<(u8, u8)>,
@@ -457,6 +463,7 @@ impl Game {
     /// cell's own colours.
     pub(crate) fn draw_overlays(&self, pixels: &mut [u8]) {
         self.draw_colon(pixels);
+        self.draw_nudges(pixels);
         self.draw_underline(pixels);
         if self.vars.game_mode != 3 || !self.shift_held() || self.vars.current_ppu_mask & 0x08 == 0 {
             return;
@@ -506,6 +513,28 @@ impl Game {
         for r in top..=bottom {
             for x in x0..x0 + 8 {
                 pixels[(y0 + r - up) * w + x] = pixels[(y0 + r) * w + x];
+            }
+        }
+    }
+
+    /// The panel's rows marked `HALF`, shifted half a tile right within the panel (the panel
+    /// screens only).
+    fn draw_nudges(&self, pixels: &mut [u8]) {
+        #[cfg(feature = "versus")]
+        let panel = matches!(self.ui.screen, Screen::Settings | Screen::Versus);
+        #[cfg(not(feature = "versus"))]
+        let panel = self.ui.screen == Screen::Settings;
+        if !panel {
+            return;
+        }
+        let w = crate::frame::WIDTH;
+        let (left, right) = (INNER.0 as usize * 8, (INNER.0 as usize + INNER.1) * 8);
+        for row in (0..30).filter(|&r| self.ui.nudged[r]) {
+            for y in row * 8..row * 8 + 8 {
+                let line = &mut pixels[y * w..][..w];
+                let background = line[left];
+                line.copy_within(left..right - 4, left + 4);
+                line[left..left + 4].fill(background);
             }
         }
     }
@@ -628,6 +657,9 @@ impl Game {
                 self.ppu_data(t);
             }
         }
+        for (row, nudge) in std::mem::take(&mut self.ui.nudge_queue) {
+            self.ui.nudged[row as usize] = nudge;
+        }
         self.render_mode_menu_screens();
     }
 
@@ -660,6 +692,8 @@ impl Game {
 
     /// Write text straight to the nametable (rendering off).
     pub(crate) fn put_text(&mut self, row: u8, col: u8, text: &str) {
+        let (nudge, text) = Self::nudge(text);
+        self.ui.nudged[row as usize] = nudge;
         self.ppu_addr(nametable_addr(row, col));
         for t in self.text_tiles(text) {
             self.ppu_data(t);
@@ -668,13 +702,25 @@ impl Game {
 
     /// Write text at the next NMI.
     pub(crate) fn queue_text(&mut self, row: u8, col: u8, text: &str) {
+        let (nudge, text) = Self::nudge(text);
+        self.ui.nudge_queue.push((row, nudge));
         let tiles = self.text_tiles(text);
         self.ui.ppu_queue.push((nametable_addr(row, col), tiles));
+    }
+
+    /// Whether `text` asks for its row to be shifted half a tile (`HALF`), and the text.
+    fn nudge(text: &str) -> (bool, &str) {
+        match text.strip_prefix(HALF) {
+            Some(rest) => (true, rest),
+            None => (false, text),
+        }
     }
 
     /// Clear the panel, frame it with the music box's border, and give it the box's palette
     /// (0: white text, yellow frame).
     pub(crate) fn draw_panel(&mut self) {
+        self.ui.nudged = [false; 30];
+        self.ui.nudge_queue.clear();
         let (top, left, bottom, right) = PANEL;
         let [tl, t, tr, l, r, bl, b, br] = FRAME_TILES;
         for row in top..=bottom {

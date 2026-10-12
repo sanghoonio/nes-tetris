@@ -80,6 +80,18 @@ struct Room {
     escape_at: Option<u64>,
     /// The last thing worth saying in the lobby's status line.
     note: Option<String>,
+    /// The matches between the room's two players so far.
+    series: Option<Series>,
+    /// The current result has been counted in `series`.
+    counted: bool,
+}
+
+/// Matches won by each of two players (by seat in their matches), since they first met here.
+struct Series {
+    names: [String; 2],
+    wins: [u32; 2],
+    /// The players' reports of the last result disagreed.
+    disputed: bool,
 }
 
 /// What a frame of VERSUS needs from the app.
@@ -148,27 +160,29 @@ impl Versus {
         let s = &room.session;
         let connection = if *s.phase() == Phase::Connecting { Connection::Connecting } else { Connection::InRoom };
         let players = s.players().clone().map(|p| p.map(|p| (p.name, p.ready)));
-        let names = s.match_names().clone().map(|n| n.unwrap_or_else(|| "-".to_string()));
         let status = match (s.phase(), &room.note) {
             (Phase::Connecting, _) => "CONNECTING TO THE ROOM".to_string(),
             (_, Some(note)) => note.clone(),
             _ if players.iter().any(Option::is_none) => "WAITING FOR A PLAYER".to_string(),
             _ if s.seat().is_none() => "WATCHING".to_string(),
             (Phase::Over { .. }, _) => "READY FOR A REMATCH".to_string(),
-            _ => "WAITING FOR BOTH TO READY".to_string(),
+            _ => "WAITING FOR READY".to_string(),
         };
-        let result = match s.phase() {
-            Phase::Over { outcome, scores, confirmed } => {
-                let what = match outcome {
-                    Outcome::Win { seat } => format!("{} WON {} TO {}", names[*seat as usize], scores[*seat as usize], scores[1 - *seat as usize]),
-                    Outcome::Draw => format!("A DRAW AT {}", scores[0]),
-                    Outcome::Forfeit { seat } => format!("{} WON BY FORFEIT", names[1 - *seat as usize]),
-                };
-                let check = if *confirmed == Some(false) { ". DISPUTED" } else { "" };
-                format!("{what}{check}")
+        // The score between the two (or who of them left, while their seat's empty).
+        let mut series = vec![];
+        if let Some(sr) = &room.series {
+            let here = |name: &String| players.iter().flatten().any(|p| &p.0 == name);
+            match sr.names.iter().find(|n| !here(n)) {
+                Some(gone) if players.iter().any(Option::is_none) => series.push(format!("{gone} LEFT")),
+                Some(_) => {}
+                None => {
+                    series.push(format!("{} {} - {} {}", sr.names[0], sr.wins[0], sr.wins[1], sr.names[1]));
+                    if sr.disputed {
+                        series.push("LAST RESULT DISPUTED".to_string());
+                    }
+                }
             }
-            _ => String::new(),
-        };
+        }
         VersusView {
             name: self.name.clone(),
             connection,
@@ -178,7 +192,7 @@ impl Versus {
             watching: s.spectators(),
             settings: from_protocol(&s.settings()),
             status,
-            result,
+            series,
         }
     }
 
@@ -230,6 +244,8 @@ impl Versus {
             result_until: None,
             escape_at: None,
             note: None,
+            series: None,
+            counted: false,
         });
     }
 
@@ -243,6 +259,28 @@ impl Versus {
         room.session.set_music(self.music);
         if !in_match {
             room.session.tick(now, 0);
+        }
+        match room.session.phase() {
+            Phase::Over { outcome, confirmed, .. } => {
+                let names = room.session.match_names().clone().map(|n| n.unwrap_or_else(|| "-".to_string()));
+                if !room.counted {
+                    room.counted = true;
+                    let series = room.series.get_or_insert_with(|| Series { names: names.clone(), wins: [0; 2], disputed: false });
+                    if series.names != names {
+                        *series = Series { names, wins: [0; 2], disputed: false };
+                    }
+                    match outcome {
+                        Outcome::Win { seat } => series.wins[*seat as usize] += 1,
+                        Outcome::Forfeit { seat } => series.wins[1 - *seat as usize] += 1,
+                        Outcome::Draw => {}
+                    }
+                }
+                if let Some(series) = room.series.as_mut() {
+                    series.disputed = *confirmed == Some(false);
+                }
+            }
+            Phase::Countdown { .. } | Phase::Playing => room.counted = false,
+            _ => {}
         }
         if room.session.seat() == Some(0) && !room.sent_settings && *room.session.phase() == Phase::Lobby {
             room.session.set_settings(to_protocol(&saved.room.to_game()));

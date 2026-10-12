@@ -107,8 +107,8 @@ fn in_room(seat: Option<u8>) -> VersusView {
         players: [Some(("ANA".into(), true)), Some(("BO".into(), false))],
         watching: 2,
         settings: RoomSettings::default(),
-        status: "WAITING FOR BOTH TO READY".into(),
-        result: "BO WON 12000 TO 9400".into(),
+        status: "WAITING FOR READY".into(),
+        series: vec!["ANA 2 - 1 BO".into()],
     }
 }
 

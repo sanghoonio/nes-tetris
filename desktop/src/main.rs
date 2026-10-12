@@ -391,9 +391,10 @@ mod tests {
         run("back to lobby", &mut copies, 10, |c| c.iter().all(|c| !c.app.versus.in_match() && c.width == 256));
         copies[0].idle(3);
         copies[0].shot("lobby_after");
-        let result = copies[2].view().result;
-        assert!(result.contains("WON") || result.contains("DRAW"), "{:#?}", copies.iter().map(|c| c.view()).collect::<Vec<_>>());
-        assert!(copies.iter().all(|c| c.view().result == result), "everyone saw the same result");
+        let series = copies[2].view().series;
+        let one = ["ANA 1 - 0 BO", "ANA 0 - 1 BO", "ANA 0 - 0 BO"];
+        assert!(series.len() == 1 && one.contains(&series[0].as_str()), "{:#?}", copies.iter().map(|c| c.view()).collect::<Vec<_>>());
+        assert!(copies.iter().all(|c| c.view().series == series), "everyone saw the same score");
         assert_eq!(copies[0].view().status, "READY FOR A REMATCH");
         // The level was saved for next time.
         assert_eq!(copies[0].app.settings.versus.room.level, 15);
@@ -429,7 +430,7 @@ mod tests {
         assert!(!copies[1].app.versus.in_match());
         assert_eq!(copies[1].view().connection, Connection::Lost("YOU LEFT THE MATCH".into()));
         // The host's match ends at once: BO forfeits.
-        run("host sees the forfeit", &mut copies, 10, |c| c[0].view().result == "ANA WON BY FORFEIT");
+        run("host sees the forfeit", &mut copies, 10, |c| c[0].view().series == ["BO LEFT"]);
         copies[0].idle(1);
         assert_eq!(copies[0].view().status, "WAITING FOR A PLAYER");
     }
@@ -460,7 +461,7 @@ mod tests {
         copies[0].tap("Escape", 2);
         let mut bo = copies.remove(1);
         let mut only = vec![bo];
-        run("the forfeit", &mut only, 10, |c| c[0].view().result == "BO WON BY FORFEIT");
+        run("the forfeit", &mut only, 10, |c| c[0].view().series == ["ANA LEFT"]);
         bo = only.remove(0);
         assert_eq!(bo.view().seat, Some(0), "BO hosts now");
         assert!(bo.app.versus.in_match(), "the result is showing");

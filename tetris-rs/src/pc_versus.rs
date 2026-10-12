@@ -10,7 +10,7 @@
 use crate::flow::{CHR_TITLE_MENU, SFX_MENU_OPTION, SFX_MENU_SCREEN};
 use crate::options::LeftRight;
 use crate::pc_input::{MenuKey, Screen};
-use crate::pc_menus::{BACK_ROW, INNER, LABEL_COL, RENDER_SETTINGS, VALUE_COL, VALUE_WIDTH};
+use crate::pc_menus::{BACK_ROW, HALF, INNER, LABEL_COL, RENDER_SETTINGS, VALUE_COL, VALUE_WIDTH};
 use crate::versus::{Connection, RoomSettings, VersusRequest, VersusView, CODE_LEN, CODE_LETTERS, NAME_LEN};
 use crate::{layout, Game};
 
@@ -33,12 +33,13 @@ const MENU: [(MenuItem, &str, u8); 5] = [
     (MenuItem::Back, "BACK", BACK_ROW),
 ];
 
-/// The lobby's rows under the room code: the status, the players, the last match, ROOM SETTINGS,
+/// The lobby's rows under the room code: the status, the players, the series, ROOM SETTINGS,
 /// READY, and LEAVE on `BACK_ROW`.
 const STATUS_ROWS: [u8; 2] = [6, 7];
 const PLAYER_ROWS: [u8; 2] = [9, 11];
 const WATCHING_ROW: u8 = 13;
-const RESULT_ROWS: [u8; 3] = [14, 15, 16];
+/// The series' lines: under the players, or under the watching count when there is one.
+const SERIES_ROWS: [u8; 2] = [14, 15];
 const ROOM_SETTINGS_ROW: u8 = 19;
 const READY_ROW: u8 = 21;
 /// The ROOM SETTINGS page: the settings double-spaced from row 6, a line for those who can't
@@ -208,9 +209,14 @@ impl Game {
         self.draw_panel();
     }
 
-    /// A line of the panel, centred.
+    /// A line of the panel, centred (half a tile right, if it has to be: `HALF`).
     fn centred(text: &str) -> String {
-        format!("{:^1$}", text, INNER.1)
+        let line = format!("{:^1$}", text, INNER.1);
+        if (INNER.1 - text.chars().count().min(INNER.1)) % 2 == 1 {
+            format!("{HALF}{line}")
+        } else {
+            line
+        }
     }
 
     /// A label and a value in the settings screen's columns, padded to the panel's width.
@@ -395,9 +401,11 @@ impl Game {
                 if view.watching > 0 {
                     put((WATCHING_ROW, Self::label_value(&format!("{} WATCHING", view.watching), "")));
                 }
-                if in_room && !view.result.is_empty() {
-                    put((RESULT_ROWS[0], Self::centred("LAST MATCH")));
-                    wrapped(&view.result, &RESULT_ROWS[1..]).into_iter().for_each(&mut put);
+                if in_room {
+                    let below = (view.watching > 0) as u8;
+                    for (line, row) in view.series.iter().zip(SERIES_ROWS) {
+                        put((row + below, Self::centred(line)));
+                    }
                 }
                 if let Some(ready) = view.seat.and_then(|s| view.players[s as usize].as_ref()).map(|p| p.1) {
                     put((READY_ROW, Self::label_value("READY", if ready { "YES" } else { "NO" })));
@@ -481,7 +489,7 @@ impl Game {
                 }
             }
             shown = lines;
-            self.ui.colon = shown[0].1.find('.').map(|i| (HEADER_ROW, INNER.0 + i as u8));
+            self.ui.colon = shown[0].1.trim_start_matches(HALF).find('.').map(|i| (HEADER_ROW, INNER.0 + i as u8));
             let items = Self::lobby_items(&view, page);
             // Arriving in the room (seated): the cursor starts on READY.
             let has_ready = items.contains(&LobbyItem::Ready);
