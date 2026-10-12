@@ -195,15 +195,19 @@ fn naming() {
     app.tap("Backspace", 2);
     app.tap("Backspace", 2);
     app.typed("ZOE 99");
-    // The cursor: the high-score screen's block, blinking.
-    let cursor = |app: &App| app.last.as_ref().unwrap().oam.chunks(4).any(|s| s[0] < 0xEF);
+    // The cursor: an underline after the name (row 14, column 19 + 6), in the letters' white,
+    // flickering as the arrows do.
+    let pixels = |app: &App| app.last.as_ref().unwrap().pixels.clone();
+    let white = 0x30;
+    assert!(pixels(&app)[14 * 8 * 256 + 19 * 8..][..8].contains(&white), "the name is in white");
+    let cursor = |app: &App| pixels(app)[(14 * 8 + 7) * 256 + 25 * 8..][..7].iter().all(|&p| p == white);
     let shown: Vec<bool> = (0..32)
         .map(|_| {
             app.idle(1);
             cursor(&app)
         })
         .collect();
-    assert!(shown.contains(&true) && shown.contains(&false), "blinks: {shown:?}");
+    assert_eq!(shown.iter().filter(|&&s| s).count(), 24, "shown 3 frames in 4, as the arrows: {shown:?}");
     while !cursor(&app) {
         app.idle(1);
     }

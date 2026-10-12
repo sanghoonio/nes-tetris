@@ -20,6 +20,8 @@ pub(crate) const RENDER_SETTINGS: u8 = 5;
 const ARROW_TILE: u8 = 0x27;
 const FLIP_H: u8 = 0x40;
 const BLANK_TILE: u8 = 0xFF;
+/// The panel's text colour (the music box palette's white).
+const TEXT_WHITE: u8 = 0x30;
 
 /// The pause screen's title and menu, centred across where the original's "PAUSE" is (x 112..152)
 /// and a row above it (y 119). The title says "PAUSED", with a blank row before the menu.
@@ -177,6 +179,9 @@ pub(crate) struct Ui {
     pub versus_requests: Vec<crate::versus::VersusRequest>,
     /// The cell (row, column) of a full stop to draw as a colon (the font has none).
     pub colon: Option<(u8, u8)>,
+    /// The cell (row, column) of a typing cursor: an underline (the font has none), flickering
+    /// as the menu arrows do.
+    pub underline: Option<(u8, u8)>,
 }
 
 impl Item {
@@ -452,6 +457,7 @@ impl Game {
     /// cell's own colours.
     pub(crate) fn draw_overlays(&self, pixels: &mut [u8]) {
         self.draw_colon(pixels);
+        self.draw_underline(pixels);
         if self.vars.game_mode != 3 || !self.shift_held() || self.vars.current_ppu_mask & 0x08 == 0 {
             return;
         }
@@ -502,6 +508,18 @@ impl Game {
                 pixels[(y0 + r - up) * w + x] = pixels[(y0 + r) * w + x];
             }
         }
+    }
+
+    /// The typing cursor at `Ui::underline`: a line along the cell's foot, under where the
+    /// letters' 7 rows end, as wide as a letter, in the text's white.
+    fn draw_underline(&self, pixels: &mut [u8]) {
+        let Some((row, col)) = self.ui.underline else { return };
+        if self.vars.frame_counter.0 as u8 & MENU_CURSOR_MASK == 0 {
+            return;
+        }
+        let (x0, y) = (col as usize * 8, row as usize * 8 + 7);
+        let w = crate::frame::WIDTH;
+        pixels[y * w + x0..][..7].fill(TEXT_WHITE);
     }
 
     /// The legal screen's first wait (255 frames), which Start skips here; the original's

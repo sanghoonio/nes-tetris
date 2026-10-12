@@ -239,6 +239,7 @@ impl Game {
             self.memset_page(0x00, 0x02, 0x02);
             loop {
                 self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
+                self.ui.underline = None;
                 if let Some(name) = editing_name.as_mut() {
                     let before = name.clone();
                     let done = self.edit_text(name, NAME_LEN, |c| crate::saved::NAME_CHARS.contains(c) && c != ',');
@@ -251,7 +252,7 @@ impl Game {
                         self.request(VersusRequest::SetName(name));
                     } else {
                         let at = name.chars().count().min(NAME_LEN - 1);
-                        self.stage_text_cursor(MENU[3].2, VALUE_COL + at as u8);
+                        self.ui.underline = Some((MENU[3].2, VALUE_COL + at as u8));
                     }
                     continue;
                 }
@@ -291,18 +292,6 @@ impl Game {
             }
         }
         self.ui.screen = Screen::TitleMenu;
-    }
-
-    /// The high-score screen's cursor block on the character cell at (row, col), blinking (8
-    /// frames on, 8 off).
-    fn stage_text_cursor(&mut self, row: u8, col: u8) {
-        if self.vars.frame_counter.0 as u8 & 0x08 != 0 {
-            return;
-        }
-        self.vars.sprite_x_offset = col * 8;
-        self.vars.sprite_y_offset = row * 8;
-        self.vars.sprite_index_in_oam_content_lookup = crate::endgame::CURSOR_SPRITE;
-        self.load_sprite_into_oam_staging();
     }
 
     /// Typing into `text` (at most `max` characters that pass `allowed`, upper case): a key adds
