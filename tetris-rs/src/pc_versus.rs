@@ -33,14 +33,14 @@ const MENU: [(MenuItem, &str, u8); 5] = [
     (MenuItem::Back, "BACK", BACK_ROW),
 ];
 
-/// The lobby's rows under the room code: the status, the players, the last match, READY, ROOM
-/// SETTINGS, and LEAVE on `BACK_ROW`.
+/// The lobby's rows under the room code: the status, the players, the last match, ROOM SETTINGS,
+/// READY, and LEAVE on `BACK_ROW`.
 const STATUS_ROWS: [u8; 2] = [6, 7];
 const PLAYER_ROWS: [u8; 2] = [9, 11];
 const WATCHING_ROW: u8 = 13;
 const RESULT_ROWS: [u8; 3] = [15, 16, 17];
-const READY_ROW: u8 = 19;
-const ROOM_SETTINGS_ROW: u8 = 21;
+const ROOM_SETTINGS_ROW: u8 = 19;
+const READY_ROW: u8 = 21;
 /// The ROOM SETTINGS page: the settings double-spaced from row 6, a line for those who can't
 /// change them, and BACK on `BACK_ROW`.
 const FIRST_SETTING_ROW: u8 = 6;
@@ -414,7 +414,7 @@ impl Game {
                     put((READY_ROW, Self::label_value("READY", if ready { "YES" } else { "NO" })));
                 }
                 if in_room {
-                    put((ROOM_SETTINGS_ROW, Self::label_value("ROOM SETTINGS", &format!("LEVEL {}", view.settings.level))));
+                    put((ROOM_SETTINGS_ROW, Self::label_value("ROOM SETTINGS", "")));
                 }
                 put((BACK_ROW, Self::label_value("LEAVE", "")));
             }
@@ -439,10 +439,10 @@ impl Game {
         match page {
             Page::Main => {
                 if view.connection == Connection::InRoom {
+                    items.push(LobbyItem::RoomSettings);
                     if view.seat.is_some() {
                         items.push(LobbyItem::Ready);
                     }
-                    items.push(LobbyItem::RoomSettings);
                 }
                 items.push(LobbyItem::Leave);
             }

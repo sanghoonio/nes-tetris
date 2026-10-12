@@ -361,9 +361,9 @@ mod tests {
         assert_eq!(copies[1].view().seat, Some(1));
         assert_eq!(copies[2].view().seat, None);
 
-        // The host makes it level 15 under ROOM SETTINGS (below READY, where the cursors start),
+        // The host makes it level 15 under ROOM SETTINGS (above READY, where the cursors start),
         // goes back, and both ready up.
-        copies[0].tap("ArrowDown", 2);
+        copies[0].tap("ArrowUp", 2);
         copies[0].tap("Enter", 2);
         for _ in 0..3 {
             copies[0].tap("ArrowLeft", 2);
@@ -371,7 +371,7 @@ mod tests {
         run("level 15", &mut copies, 10, |c| c.iter().all(|c| c.view().settings.level == 15));
         copies[0].shot("room_settings");
         copies[0].tap("Escape", 2);
-        copies[0].tap("ArrowUp", 2);
+        copies[0].tap("ArrowDown", 2);
         copies[0].tap("Enter", 2);
         copies[1].tap("Enter", 2);
 

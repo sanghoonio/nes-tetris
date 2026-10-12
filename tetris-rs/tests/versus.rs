@@ -223,10 +223,10 @@ fn hosting_and_the_lobby() {
     app.view = in_room(Some(0));
     app.idle(5);
     app.shot("lobby_host");
-    // The host's cursor starts on READY; ROOM SETTINGS is below it.
+    // The host's cursor starts on READY; ROOM SETTINGS is above it.
     app.tap("Enter", 2);
     assert_eq!(app.take(), vec![VersusRequest::Ready(false)], "ANA is ready: Enter unreadies");
-    app.tap("ArrowDown", 2);
+    app.tap("ArrowUp", 2);
     app.tap("Enter", 5);
     app.shot("room_settings_host");
     app.tap("ArrowRight", 2);
@@ -264,7 +264,7 @@ fn joining_by_code() {
     app.tap("Enter", 2);
     assert_eq!(app.take(), vec![VersusRequest::Ready(true)]);
     // The opponent sees the room's settings but can't change them: only BACK.
-    app.tap("ArrowDown", 2);
+    app.tap("ArrowUp", 2);
     app.tap("Enter", 5);
     app.shot("room_settings_opponent");
     app.tap("ArrowUp", 2);
