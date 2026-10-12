@@ -26,7 +26,7 @@ const DMC_RAW: u16 = 0x4011;
 const SND_CHN: u16 = 0x4015;
 const APU_FRAME_COUNTER: u16 = 0x4017;
 /// `musicStagingNoiseHi` holds this while the game is paused.
-const PAUSED: u8 = 0x05;
+pub(crate) const PAUSED: u8 = 0x05;
 /// What `computeSoundEffMethod` falls back to for an effect number past the table: an `rts`.
 const NO_ROUTINE: u16 = 0xE091;
 

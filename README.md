@@ -156,7 +156,7 @@ name and how many matches they've won. Next to each score is how far ahead (gree
 (red) that player is.
 
 You can't pause against another person. Pressing Escape twice leaves, and counts as a loss.
-Against the computer, Escape pauses as normal.
+Against the computer, Escape pauses as normal, and so does switching to another window.
 
 Matches run on the clock. If your game stops (you switch tabs, your computer stalls), it catches
 up when it's back, with the pieces in the meantime falling unsteered. If your moves stop getting

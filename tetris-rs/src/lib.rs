@@ -44,7 +44,7 @@ mod vram;
 
 use std::sync::Arc;
 
-pub use frame::{FrameOut, Runner};
+pub use frame::{pause_jingle, FrameOut, Runner};
 pub use hw::{ApuSink, Joypads, Mmc1};
 pub use rom::Rom;
 pub use saved::Saved;

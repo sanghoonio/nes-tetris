@@ -159,7 +159,7 @@ impl Game {
         out
     }
 
-    fn mapping(&self) -> Mapping {
+    pub(crate) fn mapping(&self) -> Mapping {
         match self.ui.screen {
             Screen::TitleMenu | Screen::Settings | Screen::Pause => Mapping::Own,
             #[cfg(feature = "versus")]

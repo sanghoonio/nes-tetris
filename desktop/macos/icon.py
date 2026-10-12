@@ -7,8 +7,11 @@ The frame is a 3-pixel light-blue band whose corners have a black diagonal seam,
 playfield's border.
 
     uv run --with pillow python3 desktop/macos/icon.py OUT_DIR [--piece t|o|s|z]
+    uv run --with pillow python3 desktop/macos/icon.py --web web/public --piece z
 
-Writes OUT_DIR/icon.png (1024x1024) and OUT_DIR/Tetris.iconset for `iconutil`.
+Writes OUT_DIR/icon.png (1024x1024) and OUT_DIR/Tetris.iconset for `iconutil`; or with --web, the
+web page's favicon.svg (the NES pixels as squares, sharp at any size) and apple-touch-icon.png
+(180x180, on black, for home screens) into that directory.
 """
 
 import argparse
@@ -62,7 +65,8 @@ def block(img, x0, y0, style, colour):
         img.putpixel((x0 + x, y0 + y), WHITE)
 
 
-def draw(piece):
+def pixels(piece):
+    """The icon at one NES pixel per pixel (SIZE by SIZE)."""
     img = Image.new("RGBA", (SIZE, SIZE), CLEAR)
     for y in range(SIZE):
         for x in range(SIZE):
@@ -74,17 +78,54 @@ def draw(piece):
     x0, y0 = (SIZE - w) // 2, (SIZE - h) // 2
     for cx, cy in cells:
         block(img, x0 + cx * 8, y0 + cy * 8, style, colour)
+    return img
+
+
+def draw(piece):
+    img = pixels(piece)
     big = img.resize((SIZE * SCALE, SIZE * SCALE), Image.NEAREST)
     icon = Image.new("RGBA", (1024, 1024), CLEAR)
     icon.paste(big, ((1024 - big.width) // 2, (1024 - big.height) // 2))
     return icon
 
 
+def svg(img):
+    """`img` as an SVG: a run of same-coloured pixels in a row is one rect."""
+    rects = []
+    for y in range(img.height):
+        x = 0
+        while x < img.width:
+            c = img.getpixel((x, y))
+            end = x + 1
+            while end < img.width and img.getpixel((end, y)) == c:
+                end += 1
+            if c[3]:
+                rects.append(f'<rect x="{x}" y="{y}" width="{end - x}" height="1" fill="#{c[0]:02x}{c[1]:02x}{c[2]:02x}"/>')
+            x = end
+    head = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {img.width} {img.height}" shape-rendering="crispEdges">'
+    return head + "".join(rects) + "</svg>\n"
+
+
+def web(out, piece):
+    img = pixels(piece)
+    (out / "favicon.svg").write_text(svg(img))
+    # Whole NES pixels (4 each), centred on black: home screens don't show transparency.
+    touch = Image.new("RGBA", (180, 180), BLACK)
+    big = img.resize((SIZE * 4, SIZE * 4), Image.NEAREST)
+    touch.alpha_composite(big, ((180 - big.width) // 2, (180 - big.height) // 2))
+    touch.convert("RGB").save(out / "apple-touch-icon.png")
+
+
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("out", type=Path)
+    p.add_argument("out", type=Path, nargs="?")
     p.add_argument("--piece", choices=sorted(PIECES), default="t")
+    p.add_argument("--web", type=Path, help="write the web page's icons into this directory instead")
     a = p.parse_args()
+    if a.web:
+        return web(a.web, a.piece)
+    if not a.out:
+        p.error("OUT_DIR, or --web DIR")
     a.out.mkdir(parents=True, exist_ok=True)
     icon = draw(a.piece)
     icon.save(a.out / "icon.png")

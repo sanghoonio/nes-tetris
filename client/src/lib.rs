@@ -38,6 +38,8 @@ pub struct App {
     /// The settings screen changed something the shell shows (volume, fullscreen, scaling).
     config_changed: bool,
     quit: bool,
+    /// The last frame had a game in play (`FrameOut::in_play`).
+    in_play: bool,
     /// The last picture's height (taller during a VERSUS match).
     height: usize,
     #[cfg(feature = "versus")]
@@ -67,6 +69,7 @@ impl App {
             dirty: false,
             config_changed: false,
             quit: false,
+            in_play: false,
             height: HEIGHT,
             #[cfg(feature = "versus")]
             versus,
@@ -115,6 +118,17 @@ impl App {
     }
 
     /// EXIT was chosen.
+    /// Whether a game is running that losing focus would pause, and hasn't yet: a single-player
+    /// game in play, or a match against your own CPU. (A shell that stops calling `frame` when
+    /// hidden, as a browser tab does, runs a few unfocused frames first, until this is false.)
+    pub fn pausable(&self) -> bool {
+        #[cfg(feature = "versus")]
+        if self.versus.in_match() {
+            return self.versus.bot_match_running();
+        }
+        self.in_play
+    }
+
     pub fn quit(&self) -> bool {
         self.quit
     }
@@ -132,7 +146,7 @@ impl App {
             self.versus.music = self.settings.last_game.to_game().music_type;
             if self.versus.in_match() {
                 let config = self.settings.config();
-                let frame = versus::Frame { held: &input.held, pressed: &input.pressed, config: &config };
+                let frame = versus::Frame { held: &input.held, pressed: &input.pressed, unfocused: input.unfocused, config: &config };
                 let out = self.versus.match_frame(frame);
                 self.versus.flush(&self.settings.versus);
                 self.guard = GUARD_FRAMES;
@@ -166,6 +180,7 @@ impl App {
         }
         self.save_changes(&out.ram);
         self.quit = out.quit;
+        self.in_play = out.in_play;
         self.height = HEIGHT;
         ((out.pixels as Box<[u8]>).into_vec(), out.samples)
     }
@@ -223,10 +238,14 @@ mod tests {
         }
 
         fn frame(&mut self, held: &[&str], pressed: &[&str]) {
+            self.frame_focus(held, pressed, true);
+        }
+
+        fn frame_focus(&mut self, held: &[&str], pressed: &[&str], focused: bool) {
             let input = Input {
                 held: held.iter().map(|s| s.to_string()).collect(),
                 pressed: pressed.iter().map(|s| s.to_string()).collect(),
-                unfocused: false,
+                unfocused: !focused,
             };
             let (pixels, _) = self.app.frame(&input, self.start.elapsed().as_millis() as u64);
             self.height = self.app.height();
@@ -653,6 +672,56 @@ mod tests {
         copies[0].tap("Enter", 2);
         run("back to the lobby", &mut copies, 10, |c| !c[0].app.versus.in_match());
         assert_eq!(copies[0].view().connection, Connection::InRoom);
+    }
+
+    /// Losing focus pauses a single-player game, and a match against your own CPU, within the
+    /// frames a hidden browser tab is given (`App::pausable`).
+    #[test]
+    fn losing_focus_pauses() {
+        // Single-player: through the menus into an A-type game.
+        let mut c = Copy::new("ws://127.0.0.1:1", "ANA");
+        c.idle(10);
+        for _ in 0..5 {
+            c.tap("Enter", 40);
+        }
+        c.idle(60);
+        assert!(c.app.pausable(), "a game in play");
+        let frames = (0..60).take_while(|_| {
+            c.frame_focus(&[], &[], false);
+            c.app.pausable()
+        });
+        assert!(frames.count() < 59, "paused within a second");
+        c.idle(5);
+        assert!(!c.app.pausable(), "still paused with focus back");
+
+        // Against the CPU (OFFLINE), with sound: the match pauses too, stands still, and plays the
+        // game's pause jingle.
+        let mut c = Copy::new("ws://127.0.0.1:1", "ANA");
+        c.app = App::new(rom(), Some(48_000), Settings::default(), 1);
+        c.app.set_versus(Some("ws://127.0.0.1:1".into()), Some("ANA"));
+        c.open_versus(3);
+        let mut copies = vec![c];
+        run("a CPU seated", &mut copies, 10, |c| c[0].view().players[1].is_some());
+        copies[0].idle(5);
+        copies[0].tap("Enter", 2);
+        run("playing the CPU", &mut copies, 20, |c| c[0].app.versus.playing());
+        copies[0].idle(60);
+        assert!(copies[0].app.pausable());
+        let input = Input { held: vec![], pressed: vec![], unfocused: true };
+        let mut peaks = vec![];
+        for _ in 0..24 {
+            let now = copies[0].start.elapsed().as_millis() as u64;
+            let (_, samples) = copies[0].app.frame(&input, now);
+            peaks.push(samples.iter().fold(0f32, |m, s| m.max(s.abs())));
+            assert!(!copies[0].app.pausable(), "paused at once");
+        }
+        // As single-player's pause: quiet, then a blip every 4 frames for 16, then quiet.
+        assert!(peaks[..4].iter().all(|&p| p < 0.01), "quiet first: {peaks:?}");
+        assert!([4, 8, 12, 16].iter().all(|&i| peaks[i] > 0.1), "the jingle: {peaks:?}");
+        assert!(peaks[20..].iter().all(|&p| p < 0.01), "then quiet: {peaks:?}");
+        let frozen = copies[0].app.versus.scores();
+        copies[0].idle(120);
+        assert_eq!(copies[0].app.versus.scores(), frozen, "both games stand still");
     }
 
     #[test]

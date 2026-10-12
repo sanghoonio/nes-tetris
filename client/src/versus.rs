@@ -139,6 +139,9 @@ pub struct Versus {
     empty: Vec<u8>,
     /// The colours of the game's pause screen (its sprites').
     sprite_palette: [u8; 4],
+    /// The game's pause jingle, a frame at a time (none without sound): a match against our own
+    /// CPU stops both games to pause, so it plays this as the game would.
+    pause_jingle: Vec<Vec<f32>>,
 }
 
 struct Room {
@@ -156,6 +159,8 @@ struct Room {
     escape_at: Option<u64>,
     /// Paused, against our own bot: the pause menu's cursor (0 RESUME, 1 QUIT).
     pause: Option<usize>,
+    /// The pause jingle's next frame to play, since pausing.
+    jingle: Option<usize>,
     /// The last thing worth saying in the lobby's status line.
     note: Option<String>,
     /// The matches between the room's two players so far.
@@ -200,6 +205,8 @@ struct Series {
 pub struct Frame<'a> {
     pub held: &'a [String],
     pub pressed: &'a [String],
+    /// The window doesn't have the keyboard: a match against your own CPU pauses.
+    pub unfocused: bool,
     pub config: &'a Config,
 }
 
@@ -218,6 +225,7 @@ impl Versus {
         });
         let empty = backdrop::empty_game_screen(&rom);
         let sprite_palette = backdrop::game_sprite_palette(&rom);
+        let pause_jingle = sample_rate.map_or(vec![], |rate| tetris_rs::pause_jingle(rom.clone(), rate));
         Versus {
             rom,
             sample_rate,
@@ -234,6 +242,7 @@ impl Versus {
             backdrop,
             empty,
             sprite_palette,
+            pause_jingle,
         }
     }
 
@@ -252,6 +261,11 @@ impl Versus {
     /// Whether connected to a room (or trying to be).
     pub fn in_room(&self) -> bool {
         self.room.is_some()
+    }
+
+    /// Whether a match against our own CPU is being played, not paused (losing focus pauses it).
+    pub fn bot_match_running(&self) -> bool {
+        self.room.as_ref().is_some_and(|r| r.session.playing_bot() && *r.session.phase() == Phase::Playing && r.pause.is_none())
     }
 
     /// Whether a match has the window: the countdown, play, or the result being shown.
@@ -454,6 +468,7 @@ impl Versus {
             result_until: None,
             escape_at: None,
             pause: None,
+            jingle: None,
             note: None,
             series: None,
             counted: false,
@@ -532,13 +547,20 @@ impl Versus {
         let pressed = |k: &str| f.pressed.iter().any(|p| p == k);
         let any = |ks: &[&str]| ks.iter().any(|k| pressed(k));
         // Against our own bot, the pause key (or Escape) pauses, with the game's pause menu:
-        // RESUME, or QUIT, which resigns (we stay in the room).
+        // RESUME, or QUIT, which resigns (we stay in the room). So does losing focus, as a
+        // single-player game does.
         let own_bot = room.session.playing_bot();
         if own_bot && *room.session.phase() == Phase::Playing {
+            if f.unfocused && room.pause.is_none() {
+                room.pause = Some(0);
+                room.jingle = Some(0);
+                room.session.set_paused(true);
+            }
             let pause_key = any(&["Escape", "PadStart", f.config.keys[6].as_str()]);
             match room.pause {
                 None if pause_key => {
                     room.pause = Some(0);
+                    room.jingle = Some(0);
                     room.session.set_paused(true);
                 }
                 None => {}
@@ -712,7 +734,18 @@ impl Versus {
             let text = "ESC AGAIN TO QUIT";
             draw_text(&rom, &mut pixels, width, width / 2 - 4 * text.len(), PROMPT_Y, text, WHITE);
         }
-        (pixels, std::mem::take(&mut view.samples))
+        // Paused: the jingle, a frame each frame (the games are stopped, so silent).
+        let mut samples = std::mem::take(&mut view.samples);
+        if room.pause.is_none() {
+            room.jingle = None;
+        }
+        if let Some(i) = room.jingle {
+            if let Some(frame) = self.pause_jingle.get(i) {
+                samples = frame.clone();
+            }
+            room.jingle = (i + 1 < self.pause_jingle.len()).then_some(i + 1);
+        }
+        (pixels, samples)
     }
 }
 

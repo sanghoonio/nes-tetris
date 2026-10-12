@@ -41,6 +41,8 @@ pub struct FrameOut {
     /// A game started with `Runner::start_game` has ended: the curtain is down, or a B-type game
     /// reached its goal. The game stays on its last screen.
     pub game_over: bool,
+    /// A game is being played (not paused, over, or in the menus): what losing focus pauses.
+    pub in_play: bool,
     /// The settings, when the settings screen changed them this frame.
     pub config: Option<crate::Config>,
     /// What the player asked for on the VERSUS screens this frame.
@@ -88,6 +90,23 @@ pub fn now<T>(routine: impl Future<Output = T>) -> T {
         Poll::Ready(v) => v,
         Poll::Pending => panic!("routine waited for a frame outside the runner"),
     }
+}
+
+/// The pause jingle, a frame at a time, as the game plays it while paused (`update_audio`): mono
+/// samples at `sample_rate`. For pauses the game doesn't make itself (a VERSUS match against your
+/// own CPU stops both games instead).
+pub fn pause_jingle(rom: Arc<Rom>, sample_rate: u32) -> Vec<Vec<f32>> {
+    let synth = Synth { apu: apu::Apu::new(sample_rate), rom: rom.clone(), odd_frame: false };
+    let mut g = Game::new(rom, Box::new(synth));
+    g.init_audio();
+    g.vars.music_staging_noise_hi = crate::sound::PAUSED;
+    // A frame of silence, 18 of blips, and one to ring out.
+    (0..20)
+        .map(|_| {
+            g.update_audio();
+            g.apu.end_frame()
+        })
+        .collect()
 }
 
 /// The synthesiser as an APU sink: it renders each frame's audio at the frame's end.
@@ -161,6 +180,7 @@ impl Game {
                 oam: self.ppu.oam,
                 quit: self.ui.quit,
                 game_over: self.ui.game_over,
+                in_play: self.mapping() == crate::pc_input::Mapping::Play,
                 config: std::mem::take(&mut self.ui.config_changed).then(|| self.options.config.clone()),
                 #[cfg(feature = "versus")]
                 versus: std::mem::take(&mut self.ui.versus_requests),

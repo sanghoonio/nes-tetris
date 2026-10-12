@@ -48,6 +48,11 @@ impl Engine {
         self.samples.extend(samples);
     }
 
+    /// Whether a game is running that losing focus would pause, and hasn't yet (`App::pausable`).
+    pub fn pausable(&self) -> bool {
+        self.app.pausable()
+    }
+
     /// The last frame's picture: RGBA, `width()` by `height()` (taller during a VERSUS match).
     pub fn rgba(&self) -> Vec<u8> {
         self.rgba.clone()

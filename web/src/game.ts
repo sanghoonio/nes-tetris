@@ -5,6 +5,8 @@
 import init, { Engine } from "./engine/engine.js";
 
 const FRAME_MS = 1000 / 60.0988;
+/// Frames after pausing in which the pause screen is drawn and its sound plays out (18).
+const PAUSE_SETTLE_FRAMES = 20;
 const SETTINGS = "nes-tetris.settings";
 
 let ready: Promise<unknown> | null = null;
@@ -163,6 +165,22 @@ export class Runner {
       this.focused = false;
     });
     this.on(window, "focus", () => (this.focused = true));
+    // A hidden tab gets no more animation frames, so the frames in which losing focus pauses the
+    // game (or a match against the CPU) never come: run them now, a second's worth at most, then
+    // the pause's own (its screen, and its sound's quarter second). The sound goes as one piece,
+    // which the worklet plays whole; frames one by one, it would keep only the last tenth of a
+    // second. Then the picture, paused, is what the tab shows until it's back.
+    this.on(document, "visibilitychange", () => {
+      if (!document.hidden) return;
+      this.held.clear();
+      this.focused = false;
+      if (!this.engine.pausable()) return;
+      for (let i = 0; i < 60 && this.engine.pausable(); i++) this.step(false);
+      for (let i = 0; i < PAUSE_SETTLE_FRAMES; i++) this.step(false);
+      const samples = this.engine.samples();
+      if (samples.length) this.sound.port.postMessage(samples, [samples.buffer]);
+      this.paint();
+    });
     this.on(window, "resize", () => this.fit());
   }
 
@@ -188,15 +206,18 @@ export class Runner {
     if (stepped) this.paint();
   }
 
-  private step() {
+  /// One frame; its sound goes to the worklet unless `sound` is false (left in the engine).
+  private step(sound = true) {
     const pads = padsHeld();
     for (const p of pads) if (!this.pads.has(p)) this.pressed.push(p);
     this.pads = pads;
     const held = [...this.held, ...pads];
     this.engine.frame(held, this.pressed, !this.focused, performance.now());
     this.pressed = [];
-    const samples = this.engine.samples();
-    if (samples.length) this.sound.port.postMessage(samples, [samples.buffer]);
+    if (sound) {
+      const samples = this.engine.samples();
+      if (samples.length) this.sound.port.postMessage(samples, [samples.buffer]);
+    }
     const settings = this.engine.changed_settings();
     if (settings) localStorage.setItem(SETTINGS, settings);
     if (this.engine.display_changed()) {
