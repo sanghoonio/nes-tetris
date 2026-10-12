@@ -20,52 +20,59 @@ use crate::backdrop::{self, Backdrop};
 use crate::settings;
 
 /// The match picture, in tiles, after Tetris Effect's classic versus: a margin, each board, with
-/// a gap between them, all four tiles. A board is the game screen's columns 11..=30 (the playfield
-/// with LINES above it, then the panel: TOP and SCORE, NEXT, LEVEL; not the statistics or
-/// A-TYPE), with the score box a tile wider to hold the difference's sign. The background is laid
-/// afresh across all of it (`backdrop`).
+/// a gap between them. A board is the game screen's columns 11..=30 (the playfield with LINES
+/// above it, then the panel: TOP and SCORE, NEXT, LEVEL; not the statistics or A-TYPE), with the
+/// score box a tile wider, to hold the difference's sign, and two shorter, for its three lines.
+/// The background is laid afresh across all of it (`backdrop`).
 const MARGIN: usize = 4;
-const GAP: usize = 4;
+const GAP: usize = 5;
 const BOARD_COLS: usize = 21;
 const MATCH_COLS: usize = 2 * MARGIN + 2 * BOARD_COLS + GAP;
 pub const MATCH_WIDTH: usize = 8 * MATCH_COLS;
 /// The game screen's first column in a board.
 const FIRST_COL: usize = 11;
-/// The score box: its rows and columns on the game screen, and the column repeated to widen it.
+/// The score box: its rows and columns on the game screen, the column repeated to widen it, and
+/// the row its bottom edge moves up to.
 const SCORE_ROWS: (usize, usize) = (2, 10);
 const SCORE_COLS: (usize, usize) = (23, 30);
 const WIDENED_AT: usize = 26;
+const SCORE_BOTTOM: usize = 8;
 
 /// The picture's column where the `i`th board starts.
 fn board_col(i: usize) -> usize {
     MARGIN + i * (BOARD_COLS + GAP)
 }
 
-/// The game screen's column shown in a board's `col`th column on row `row`: its own, except in
-/// the score box's rows, where one of the box's inside columns shows twice and the rest move
-/// right; none past the panel.
-fn source_col(row: usize, col: usize) -> Option<usize> {
+/// The game screen's cell (row, column) shown in a board's `col`th column on row `row`: its own,
+/// except for the score box, which is a column wider (one of its inside columns shows twice and
+/// the rest move right) and ends at `SCORE_BOTTOM` (its bottom edge moved up, the background
+/// under it); none past the panel.
+fn source_cell(row: usize, col: usize) -> Option<(usize, usize)> {
     let c = col + FIRST_COL;
-    let widened = (SCORE_ROWS.0..=SCORE_ROWS.1).contains(&row);
-    match c {
-        c if widened && c > WIDENED_AT => Some(c - 1),
-        c if c <= SCORE_COLS.1 => Some(c),
+    if c < SCORE_COLS.0 || !(SCORE_ROWS.0..=SCORE_ROWS.1).contains(&row) {
+        return (c <= SCORE_COLS.1).then_some((row, c));
+    }
+    let c = if c > WIDENED_AT { c - 1 } else { c };
+    match row {
+        r if r < SCORE_BOTTOM => Some((r, c)),
+        SCORE_BOTTOM => Some((SCORE_ROWS.1, c)),
         _ => None,
     }
 }
 
 /// The score box's inside in a board (pixels from the board's left, and rows), and its lines:
-/// SCORE, the score, the difference. The sign takes 5 pixels before the difference's digits;
-/// the rest line up with them.
+/// SCORE, the score, the difference, 8 pixels apart and centred top to bottom (each 7 high). The
+/// sign takes 5 pixels before the difference's digits; the rest line up with them.
 const SCORE_INSIDE: (usize, usize, usize, usize) = (
     8 * (SCORE_COLS.0 - FIRST_COL) + 5,
     8 * (SCORE_COLS.1 + 1 - FIRST_COL) + 8 - 5,
-    21,
-    83,
+    8 * SCORE_ROWS.0 + 5,
+    8 * SCORE_BOTTOM + 3,
 );
 const SIGN_X: usize = SCORE_INSIDE.0 + 4;
 const DIGITS_X: usize = SIGN_X + 6;
-const SCORE_LINES: [usize; 3] = [40, 48, 56];
+const SCORE_TOP: usize = SCORE_INSIDE.2 + (SCORE_INSIDE.3 - SCORE_INSIDE.2 - 23) / 2;
+const SCORE_LINES: [usize; 3] = [SCORE_TOP, SCORE_TOP + 8, SCORE_TOP + 16];
 /// The difference's colours: green ahead (or level), red behind; the result's: WIN yellow, LOSE
 /// grey.
 const GREEN: u8 = 0x2A;
@@ -144,7 +151,7 @@ impl Versus {
     pub fn new(rom: Arc<Rom>, sample_rate: Option<u32>, server: String, name: String) -> Self {
         let boxes = backdrop::game_boxes(&rom);
         let backdrop = Backdrop::new(MATCH_COLS, HEIGHT / 8, |r, c| {
-            (0..2).any(|i| (board_col(i)..board_col(i) + BOARD_COLS).contains(&c) && source_col(r, c - board_col(i)).is_some_and(|sc| boxes[r][sc]))
+            (0..2).any(|i| (board_col(i)..board_col(i) + BOARD_COLS).contains(&c) && source_cell(r, c - board_col(i)).is_some_and(|(sr, sc)| boxes[sr][sc]))
         });
         let empty = backdrop::empty_game_screen(&rom);
         Versus { rom, sample_rate, start: Instant::now(), server, name, music: 0, room: None, lost: None, boxes, backdrop, empty }
@@ -400,9 +407,9 @@ impl Versus {
             // The game's boxes, a tile at a time; the background between them is the backdrop's.
             for r in 0..30 {
                 for c in 0..BOARD_COLS {
-                    let Some(sc) = source_col(r, c).filter(|&sc| self.boxes[r][sc]) else { continue };
-                    for y in r * 8..r * 8 + 8 {
-                        pixels[y * width + 8 * (board_col(i) + c)..][..8].copy_from_slice(&board[y * WIDTH + sc * 8..][..8]);
+                    let Some((sr, sc)) = source_cell(r, c).filter(|&(sr, sc)| self.boxes[sr][sc]) else { continue };
+                    for y in 0..8 {
+                        pixels[(r * 8 + y) * width + 8 * (board_col(i) + c)..][..8].copy_from_slice(&board[(sr * 8 + y) * WIDTH + sc * 8..][..8]);
                     }
                 }
             }
