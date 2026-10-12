@@ -133,7 +133,9 @@ the same pieces; on unless turned off) and the rules (DAS, hard drop, ghost and 
 SETTINGS in the room, where the others can look but not change them; both players
 choose READY and the match starts after a countdown. The window widens to show both games side by
 side, yours on the left, each with its playfield, score, next piece and level (the piece
-statistics aren't shown). Your game keys work as usual; there's no
+statistics aren't shown). Each score box also shows the gap to the other player, green when
+ahead and red when behind, and the names sit under the boards with the matches won between you.
+Your game keys work as usual; there's no
 pausing, and pressing Escape twice leaves the match, which forfeits it. After the result, READY again for a rematch.
 
 Each player needs their own ROM. Only button presses and scores travel between the games.
