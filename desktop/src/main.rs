@@ -11,6 +11,8 @@
 //! (`settings.rs`), saved as they change. The title screen has START / SETTINGS / EXIT
 //! (`tetris_rs::Options::menus`).
 
+#[cfg(feature = "versus")]
+mod backdrop;
 mod settings;
 #[cfg(feature = "versus")]
 mod versus;

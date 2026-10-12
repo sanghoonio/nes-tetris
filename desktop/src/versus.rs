@@ -16,24 +16,23 @@ use tetris_rs::pc_input::play_buttons;
 use tetris_rs::versus::{draw_text, Connection, RoomSettings, VersusRequest, VersusView, BLACK, WHITE};
 use tetris_rs::{Config, Rom};
 
+use crate::backdrop::{self, Backdrop};
 use crate::settings;
 
-/// Each board in a match, as strips of the game screen's columns (from x, to x) laid side by side:
-/// two tiles of background, the playfield (LINES above it) and the panel (TOP and SCORE, NEXT,
-/// LEVEL) as the game draws them, two more tiles of background. The statistics and A-TYPE are
-/// left out. The background tiles are the screen's last column and its first, the only two with
-/// nothing over them; two make the width of the background's bricks, and the boards' meet makes
-/// four between them.
-const BACKGROUND: [(usize, usize); 2] = [(248, 256), (0, 8)];
-const BOARD: [(usize, usize); 5] = [BACKGROUND[0], BACKGROUND[1], (88, 248), BACKGROUND[0], BACKGROUND[1]];
-/// The playfield's strip on the game screen.
-const PLAYFIELD: (usize, usize) = (88, 184);
-/// A board's width in the match picture. Between the two boards, two more tiles of background
-/// make six in all, about half a playfield, as Tetris Effect's classic versus spaces them.
-const BOARD_WIDTH: usize = 192;
-const BETWEEN: usize = 16;
-const BETWEEN_SHIFT: usize = 64;
-pub const MATCH_WIDTH: usize = 2 * BOARD_WIDTH + BETWEEN;
+/// The match picture, in tiles, after Tetris Effect's classic versus: a margin, each board's
+/// columns 11..=30 of the game screen (the playfield with LINES above it, then the panel: TOP and
+/// SCORE, NEXT, LEVEL; not the statistics or A-TYPE), with a gap between the boards. The
+/// background is laid afresh across all of it (`backdrop`).
+const MARGIN: usize = 3;
+const GAP: usize = 5;
+const BOARD_COLS: (usize, usize) = (11, 31);
+const MATCH_COLS: usize = 2 * MARGIN + 2 * (BOARD_COLS.1 - BOARD_COLS.0) + GAP;
+pub const MATCH_WIDTH: usize = 8 * MATCH_COLS;
+
+/// The picture's column where the `i`th board's column 11 goes.
+fn board_col(i: usize) -> usize {
+    MARGIN + i * (BOARD_COLS.1 - BOARD_COLS.0 + GAP)
+}
 /// The score box's inside on the game screen (TOP and SCORE, which a match shows as SCORE, the
 /// score, and the difference from the opponent's), and where its lines go.
 const SCORE_BOX: (usize, usize, usize, usize) = (189, 243, 21, 83);
@@ -58,21 +57,6 @@ const RESULT_MS: u64 = 6000;
 /// The middle of the playfield on the game screen, in pixels from its left.
 const PLAYFIELD_CENTRE: usize = 136;
 
-/// Where a board's strips go: (from x, to x, at x) for a board starting at `x0`, and where its
-/// playfield's middle lands.
-fn place(strips: &[(usize, usize)], x0: usize) -> (Vec<(usize, usize, usize)>, usize) {
-    let mut at = x0;
-    let mut centre = 0;
-    let mut placed = vec![];
-    for &(from, to) in strips {
-        placed.push((from, to, at));
-        if (from..to).contains(&PLAYFIELD.0) {
-            centre = at + PLAYFIELD_CENTRE - from;
-        }
-        at += to - from;
-    }
-    (placed, centre)
-}
 /// How long Escape's "again to quit" lasts.
 const ESCAPE_MS: u64 = 2000;
 
@@ -88,6 +72,9 @@ pub struct Versus {
     room: Option<Room>,
     /// A connection that failed or ended, until the player leaves the lobby.
     lost: Option<String>,
+    /// The game screen's box cells, and the match picture's background.
+    boxes: [[bool; 32]; 30],
+    backdrop: Backdrop,
 }
 
 struct Room {
@@ -125,7 +112,11 @@ pub struct Frame<'a> {
 
 impl Versus {
     pub fn new(rom: Arc<Rom>, sample_rate: Option<u32>, server: String, name: String) -> Self {
-        Versus { rom, sample_rate, start: Instant::now(), server, name, music: 0, room: None, lost: None }
+        let boxes = backdrop::game_boxes(&rom);
+        let backdrop = Backdrop::new(MATCH_COLS, HEIGHT / 8, |r, c| {
+            (0..2).any(|i| (board_col(i)..board_col(i) + BOARD_COLS.1 - BOARD_COLS.0).contains(&c) && boxes[r][c - board_col(i) + BOARD_COLS.0])
+        });
+        Versus { rom, sample_rate, start: Instant::now(), server, name, music: 0, room: None, lost: None, boxes, backdrop }
     }
 
     fn now(&self) -> u64 {
@@ -355,40 +346,34 @@ impl Versus {
         // Ours (or the host's, watching) on the left.
         let left = room.session.match_seat().unwrap_or(0) as usize;
         let width = MATCH_WIDTH;
-        let mut pixels = vec![0x0Fu8; width * HEIGHT];
-        let ours = place(&BOARD, 0);
-        let theirs = place(&BOARD, BOARD_WIDTH + BETWEEN);
-        let centres = [ours.1, theirs.1];
-        let copy = |pixels: &mut [u8], board: &[u8], strips: &[(usize, usize, usize)]| {
-            for &(from, to, at) in strips {
-                for y in 0..HEIGHT {
-                    pixels[y * width + at..][..to - from].copy_from_slice(&board[y * WIDTH + from..][..to - from]);
-                }
-            }
-        };
-        // The background between the boards, from either: the same two columns as the margins,
-        // from further down, so the three strips side by side don't repeat row for row.
-        if let Some(board) = view.boards.iter().flatten().next() {
-            let (between, _) = place(&BACKGROUND, BOARD_WIDTH);
-            for &(from, to, at) in &between {
-                for y in 0..HEIGHT {
-                    let sy = (y + BETWEEN_SHIFT) % HEIGHT;
-                    pixels[y * width + at..][..to - from].copy_from_slice(&board[sy * WIDTH + from..][..to - from]);
-                }
-            }
-        }
+        let mut pixels = vec![BLACK; width * HEIGHT];
+        self.backdrop.draw(&mut pixels);
+        // Where a game screen x lands for the `i`th board, and its playfield's middle.
+        let sx = |i: usize, x: usize| 8 * board_col(i) + x - 8 * BOARD_COLS.0;
+        let centres = [sx(0, PLAYFIELD_CENTRE), sx(1, PLAYFIELD_CENTRE)];
         let names = room.session.match_names().clone().map(Option::unwrap_or_default);
         let mut scores = room.session.scores().map(Option::unwrap_or_default);
         if let Phase::Over { scores: official, .. } = room.session.phase() {
             scores = *official;
         }
-        for (seat, (strips, middle)) in [(left, &ours), (1 - left, &theirs)] {
-            if let Some(board) = &view.boards[seat] {
-                copy(&mut pixels, &board[..], strips);
+        for (i, seat) in [left, 1 - left].into_iter().enumerate() {
+            let middle = centres[i];
+            // Each board's name, under its playfield.
+            draw_text(&rom, &mut pixels, width, middle - 4 * names[seat].len(), BOTTOM_Y, &names[seat], WHITE);
+            // Nothing more until the game's picture comes (at the end of the countdown).
+            let Some(board) = &view.boards[seat] else { continue };
+            // The game's boxes, a tile at a time; the background between them is the backdrop's.
+            for r in 0..30 {
+                for c in BOARD_COLS.0..BOARD_COLS.1 {
+                    if self.boxes[r][c] {
+                        for y in r * 8..r * 8 + 8 {
+                            pixels[y * width + sx(i, c * 8)..][..8].copy_from_slice(&board[y * WIDTH + c * 8..][..8]);
+                        }
+                    }
+                }
             }
             // The score box: SCORE, the score, and the difference from the opponent's.
-            let (main_from, _, main_at) = strips[2];
-            let sx = |x: usize| main_at + x - main_from;
+            let sx = |x: usize| sx(i, x);
             let (x0, x1, y0, y1) = SCORE_BOX;
             for y in y0..y1 {
                 pixels[y * width + sx(x0)..y * width + sx(x1)].fill(BLACK);
@@ -406,8 +391,6 @@ impl Versus {
                     }
                 }
             }
-            // Each board's player, under its playfield.
-            draw_text(&rom, &mut pixels, width, middle - 4 * names[seat].len(), BOTTOM_Y, &names[seat], WHITE);
             // A player who left: their board stops, marked.
             if room.session.gone()[seat] {
                 draw_text(&rom, &mut pixels, width, middle - 8, 84, "LEFT", WHITE);
