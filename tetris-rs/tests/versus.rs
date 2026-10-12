@@ -107,7 +107,8 @@ fn in_room(seat: Option<u8>) -> VersusView {
         players: [Some(("ANA".into(), true)), Some(("BO".into(), false))],
         watching: 2,
         settings: RoomSettings::default(),
-        status: "WAITING FOR BOTH PLAYERS TO READY UP".into(),
+        status: "WAITING FOR BOTH TO READY".into(),
+        result: "BO WON 12000 TO 9400".into(),
     }
 }
 
@@ -222,12 +223,12 @@ fn hosting_and_the_lobby() {
     app.view = in_room(Some(0));
     app.idle(5);
     app.shot("lobby_host");
-    // The host's cursor starts on READY; Up reaches the settings.
+    // The host's cursor starts on READY; ROOM SETTINGS is below it.
     app.tap("Enter", 2);
     assert_eq!(app.take(), vec![VersusRequest::Ready(false)], "ANA is ready: Enter unreadies");
-    for _ in 0..8 {
-        app.tap("ArrowUp", 2);
-    }
+    app.tap("ArrowDown", 2);
+    app.tap("Enter", 5);
+    app.shot("room_settings_host");
     app.tap("ArrowRight", 2);
     let level = RoomSettings { level: 19, ..RoomSettings::default() };
     assert_eq!(app.take(), vec![VersusRequest::Settings(level)]);
@@ -235,7 +236,9 @@ fn hosting_and_the_lobby() {
     app.tap("Enter", 2);
     // Changes build on each other before the room confirms them.
     assert_eq!(app.take(), vec![VersusRequest::Settings(RoomSettings { level: 19, identical: false, ..RoomSettings::default() })]);
-    // LEAVE: back to the VERSUS menu.
+    // Escape: back to the lobby's main page, then out of the room.
+    app.tap("Escape", 5);
+    assert!(app.take().is_empty());
     app.tap("Escape", 20);
     assert_eq!(app.take(), vec![VersusRequest::Leave]);
     app.tap("Enter", 2);
@@ -258,11 +261,19 @@ fn joining_by_code() {
     app.view = in_room(Some(1));
     app.idle(20);
     app.shot("lobby_opponent");
-    // The opponent can't reach the settings: Up from READY goes to LEAVE, wrapping.
-    app.tap("ArrowRight", 2);
-    assert!(app.take().is_empty());
     app.tap("Enter", 2);
     assert_eq!(app.take(), vec![VersusRequest::Ready(true)]);
+    // The opponent sees the room's settings but can't change them: only BACK.
+    app.tap("ArrowDown", 2);
+    app.tap("Enter", 5);
+    app.shot("room_settings_opponent");
+    app.tap("ArrowUp", 2);
+    app.tap("ArrowRight", 2);
+    assert!(app.take().is_empty());
+    app.tap("Enter", 5);
+    assert!(app.take().is_empty(), "BACK to the lobby, still in the room");
+    app.tap("Escape", 5);
+    assert_eq!(app.take(), vec![VersusRequest::Leave]);
 }
 
 #[test]
@@ -277,7 +288,7 @@ fn watching() {
     app.view = in_room(None);
     app.idle(20);
     app.shot("lobby_watching");
-    // Only LEAVE.
+    // The cursor starts on LEAVE.
     app.tap("Enter", 2);
     assert_eq!(app.take(), vec![VersusRequest::Leave]);
 }

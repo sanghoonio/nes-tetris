@@ -19,16 +19,18 @@ use tetris_rs::{Config, Rom};
 use crate::settings;
 
 /// Each board in a match, as strips of the game screen's columns (from x, to x) laid side by side.
-/// Ours is mirrored: a column of background, the panel (TOP and SCORE, NEXT, LEVEL) on the
-/// outside, then the playfield with LINES above it. The opponent's is as the game draws it, after
-/// a column of background. The statistics and A-TYPE are left out, so the playfields meet in the
-/// middle.
-const OURS: [(usize, usize); 3] = [(0, 8), (184, 256), (88, 184)];
-const THEIRS: [(usize, usize); 2] = [(0, 8), (88, 256)];
+/// Ours is mirrored: its panel (TOP and SCORE, NEXT, LEVEL) on the outside, then the playfield
+/// with LINES above it. The opponent's is as the game draws it. The statistics and A-TYPE are left
+/// out. The margins and the gap between the playfields are two tiles of background, the width of
+/// the background's bricks: the screen's last column and its first, the only two with nothing
+/// over them.
+const BACKGROUND: [(usize, usize); 2] = [(248, 256), (0, 8)];
+const OURS: [(usize, usize); 4] = [BACKGROUND[0], BACKGROUND[1], (184, 248), (88, 184)];
+const THEIRS: [(usize, usize); 5] = [BACKGROUND[0], BACKGROUND[1], (88, 248), BACKGROUND[0], BACKGROUND[1]];
 /// The playfield's strip on the game screen.
 const PLAYFIELD: (usize, usize) = (88, 184);
-/// The match picture's width.
-pub const MATCH_WIDTH: usize = 2 * 176;
+/// The match picture's width: 176 for ours, 192 for theirs.
+pub const MATCH_WIDTH: usize = 368;
 /// How long the result stays over the boards (unless Enter is pressed first).
 const RESULT_MS: u64 = 6000;
 /// The middle of the playfield on the game screen, in pixels from its left.
@@ -149,20 +151,23 @@ impl Versus {
         let names = s.match_names().clone().map(|n| n.unwrap_or_else(|| "-".to_string()));
         let status = match (s.phase(), &room.note) {
             (Phase::Connecting, _) => "CONNECTING TO THE ROOM".to_string(),
-            (Phase::Over { outcome, scores, confirmed }, _) => {
+            (_, Some(note)) => note.clone(),
+            _ if players.iter().any(Option::is_none) => "WAITING FOR A PLAYER".to_string(),
+            _ if s.seat().is_none() => "WATCHING".to_string(),
+            (Phase::Over { .. }, _) => "READY FOR A REMATCH".to_string(),
+            _ => "WAITING FOR BOTH TO READY".to_string(),
+        };
+        let result = match s.phase() {
+            Phase::Over { outcome, scores, confirmed } => {
                 let what = match outcome {
                     Outcome::Win { seat } => format!("{} WON {} TO {}", names[*seat as usize], scores[*seat as usize], scores[1 - *seat as usize]),
                     Outcome::Draw => format!("A DRAW AT {}", scores[0]),
                     Outcome::Forfeit { seat } => format!("{} LEFT", names[*seat as usize]),
                 };
                 let check = if *confirmed == Some(false) { ". DISPUTED" } else { "" };
-                let next = if players.iter().all(Option::is_some) { "READY FOR A REMATCH" } else { "WAITING FOR A PLAYER" };
-                format!("{what}{check}. {next}")
+                format!("{what}{check}")
             }
-            (_, Some(note)) => note.clone(),
-            _ if players[1].is_none() => "WAITING FOR A PLAYER".to_string(),
-            _ if s.seat().is_none() => "WATCHING".to_string(),
-            _ => "WAITING FOR BOTH PLAYERS TO READY UP".to_string(),
+            _ => String::new(),
         };
         VersusView {
             name: self.name.clone(),
@@ -173,6 +178,7 @@ impl Versus {
             watching: s.spectators(),
             settings: from_protocol(&s.settings()),
             status,
+            result,
         }
     }
 
@@ -245,7 +251,8 @@ impl Versus {
         for note in room.session.take_notes() {
             room.note = Some(match note {
                 Note::Error(e) => e.to_uppercase(),
-                Note::Gone(seat) => format!("PLAYER {} LEFT", seat + 1),
+                // The empty seat says so.
+                Note::Gone(_) => continue,
                 Note::Desync { .. } => "THE GAMES DISAGREE".to_string(),
                 Note::Abandoned => "BOTH PLAYERS LEFT".to_string(),
             });
@@ -290,7 +297,7 @@ impl Versus {
         let width = MATCH_WIDTH;
         let mut pixels = vec![0x0Fu8; width * HEIGHT];
         let ours = place(&OURS, 0);
-        let theirs = place(&THEIRS, MATCH_WIDTH / 2);
+        let theirs = place(&THEIRS, 176);
         let centres = [ours.1, theirs.1];
         for (seat, (strips, middle)) in [(left, &ours), (1 - left, &theirs)] {
             if let Some(board) = &view.boards[seat] {

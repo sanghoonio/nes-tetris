@@ -129,7 +129,8 @@ tops out, the other plays on until they pass that score or top out too. Others c
 
 **Playing:** HOST makes a room and shows its four-letter code; the other player chooses JOIN
 and types it, and anyone else can WATCH with it. The host sets the level, SAME SEED (both players get
-the same pieces; on unless turned off) and the rules (DAS, hard drop, ghost and so on) in the room; both players
+the same pieces; on unless turned off) and the rules (DAS, hard drop, ghost and so on) under ROOM
+SETTINGS in the room, where the others can look but not change them; both players
 choose READY and the match starts after a countdown. The window widens to show both playfields
 side by side, yours on the left, with each player's score, next piece and level on their outer
 side (the piece statistics aren't shown). Your game keys work as usual; there's no

@@ -33,13 +33,18 @@ const MENU: [(MenuItem, &str, u8); 5] = [
     (MenuItem::Back, "BACK", BACK_ROW),
 ];
 
-/// The lobby's rows under the room code: the status, the players, the room's settings
-/// (single-spaced), READY, and LEAVE on `BACK_ROW`.
+/// The lobby's rows under the room code: the status, the players, the last match, READY, ROOM
+/// SETTINGS, and LEAVE on `BACK_ROW`.
 const STATUS_ROWS: [u8; 2] = [6, 7];
-const PLAYER_ROWS: [u8; 2] = [9, 10];
-const WATCHING_ROW: u8 = 11;
-const FIRST_SETTING_ROW: u8 = 13;
-const READY_ROW: u8 = 22;
+const PLAYER_ROWS: [u8; 2] = [9, 11];
+const WATCHING_ROW: u8 = 13;
+const RESULT_ROWS: [u8; 3] = [15, 16, 17];
+const READY_ROW: u8 = 19;
+const ROOM_SETTINGS_ROW: u8 = 21;
+/// The ROOM SETTINGS page: the settings double-spaced from row 6, a line for those who can't
+/// change them, and BACK on `BACK_ROW`.
+const FIRST_SETTING_ROW: u8 = 6;
+const HOST_ONLY_ROW: u8 = 23;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Setting {
@@ -126,30 +131,59 @@ impl Setting {
     }
 }
 
+/// The lobby's two pages.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Page {
+    Main,
+    RoomSettings,
+}
+
 /// What the lobby's cursor can be on.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum LobbyItem {
-    Setting(Setting),
     Ready,
+    RoomSettings,
     Leave,
+    Setting(Setting),
+    Back,
 }
 
 impl LobbyItem {
     fn row(self) -> u8 {
         match self {
-            LobbyItem::Setting(s) => FIRST_SETTING_ROW + SETTINGS.iter().position(|&x| x == s).unwrap() as u8,
             LobbyItem::Ready => READY_ROW,
-            LobbyItem::Leave => BACK_ROW,
+            LobbyItem::RoomSettings => ROOM_SETTINGS_ROW,
+            LobbyItem::Setting(s) => FIRST_SETTING_ROW + 2 * SETTINGS.iter().position(|&x| x == s).unwrap() as u8,
+            LobbyItem::Leave | LobbyItem::Back => BACK_ROW,
         }
     }
 
     fn label(self) -> &'static str {
         match self {
-            LobbyItem::Setting(s) => s.label(),
             LobbyItem::Ready => "READY",
+            LobbyItem::RoomSettings => "ROOM SETTINGS",
             LobbyItem::Leave => "LEAVE",
+            LobbyItem::Setting(s) => s.label(),
+            LobbyItem::Back => "BACK",
         }
     }
+}
+
+/// `text` word-wrapped to the panel's width, centred, on `rows` (what doesn't fit is dropped).
+fn wrapped(text: &str, rows: &[u8]) -> Vec<(u8, String)> {
+    let mut lines: Vec<String> = vec![String::new()];
+    for word in text.split_whitespace() {
+        let last = lines.last_mut().unwrap();
+        if !last.is_empty() && last.len() + 1 + word.len() > INNER.1 {
+            lines.push(word.to_string());
+        } else {
+            if !last.is_empty() {
+                last.push(' ');
+            }
+            last.push_str(word);
+        }
+    }
+    rows.iter().zip(lines).map(|(&row, line)| (row, Game::centred(&line))).collect()
 }
 
 impl Game {
@@ -339,82 +373,94 @@ impl Game {
         }
     }
 
-    /// Everything in the lobby's panel for `view`, line by line.
-    fn lobby_lines(view: &VersusView) -> Vec<(u8, String)> {
-        let header = match &view.connection {
-            // The colon is drawn over the full stop (`draw_overlays`).
-            Connection::InRoom => format!("ROOM CODE. {}", view.code),
-            Connection::Connecting => "CONNECTING".to_string(),
-            Connection::None | Connection::Lost(_) => "NOT CONNECTED".to_string(),
-        };
-        let mut lines = vec![(HEADER_ROW, Self::centred(&header))];
-        // The status, word-wrapped onto two lines.
-        let status = match &view.connection {
-            Connection::Lost(why) => why.clone(),
-            _ => view.status.clone(),
-        };
-        let mut wrapped: Vec<String> = vec![String::new()];
-        for word in status.split_whitespace() {
-            let last = wrapped.last_mut().unwrap();
-            if !last.is_empty() && last.len() + 1 + word.len() > INNER.1 {
-                wrapped.push(word.to_string());
-            } else {
-                if !last.is_empty() {
-                    last.push(' ');
+    /// Every line inside the lobby's panel for `view` on `page`, blank rows included (so a page
+    /// change redraws all of it).
+    fn lobby_lines(view: &VersusView, page: Page) -> Vec<(u8, String)> {
+        let mut lines: Vec<(u8, String)> = (HEADER_ROW..=BACK_ROW).map(|row| (row, Self::label_value("", ""))).collect();
+        let mut put = |(row, text): (u8, String)| lines[(row - HEADER_ROW) as usize].1 = text;
+        let in_room = view.connection == Connection::InRoom;
+        match page {
+            Page::Main => {
+                let header = match &view.connection {
+                    // The colon is drawn over the full stop (`draw_overlays`).
+                    Connection::InRoom => format!("ROOM CODE. {}", view.code),
+                    Connection::Connecting => "CONNECTING".to_string(),
+                    Connection::None | Connection::Lost(_) => "NOT CONNECTED".to_string(),
+                };
+                put((HEADER_ROW, Self::centred(&header)));
+                let status = match &view.connection {
+                    Connection::Lost(why) => why.clone(),
+                    _ => view.status.clone(),
+                };
+                wrapped(&status, &STATUS_ROWS).into_iter().for_each(&mut put);
+                for (i, row) in PLAYER_ROWS.into_iter().enumerate() {
+                    let text = match &view.players[i] {
+                        Some((name, ready)) => {
+                            let you = if view.seat == Some(i as u8) { " (YOU)" } else { "" };
+                            Self::label_value(&format!("{name}{you}"), if *ready { "READY" } else { "" })
+                        }
+                        None => Self::label_value("-", ""),
+                    };
+                    put((row, text));
                 }
-                last.push_str(word);
+                if view.watching > 0 {
+                    put((WATCHING_ROW, Self::label_value(&format!("{} WATCHING", view.watching), "")));
+                }
+                if in_room && !view.result.is_empty() {
+                    put((RESULT_ROWS[0], Self::centred("LAST MATCH")));
+                    wrapped(&view.result, &RESULT_ROWS[1..]).into_iter().for_each(&mut put);
+                }
+                if let Some(ready) = view.seat.and_then(|s| view.players[s as usize].as_ref()).map(|p| p.1) {
+                    put((READY_ROW, Self::label_value("READY", if ready { "YES" } else { "NO" })));
+                }
+                if in_room {
+                    put((ROOM_SETTINGS_ROW, Self::label_value("ROOM SETTINGS", &format!("LEVEL {}", view.settings.level))));
+                }
+                put((BACK_ROW, Self::label_value("LEAVE", "")));
+            }
+            Page::RoomSettings => {
+                put((HEADER_ROW, Self::centred("ROOM SETTINGS")));
+                for s in SETTINGS {
+                    put((LobbyItem::Setting(s).row(), Self::label_value(s.label(), &s.value(&view.settings))));
+                }
+                if view.seat != Some(0) {
+                    put((HOST_ONLY_ROW, Self::centred("SET BY THE HOST")));
+                }
+                put((BACK_ROW, Self::label_value("BACK", "")));
             }
         }
-        for (i, row) in STATUS_ROWS.into_iter().enumerate() {
-            lines.push((row, Self::centred(wrapped.get(i).map_or("", String::as_str))));
-        }
-        for (i, row) in PLAYER_ROWS.into_iter().enumerate() {
-            let text = match &view.players[i] {
-                Some((name, ready)) => {
-                    let you = if view.seat == Some(i as u8) { " (YOU)" } else { "" };
-                    Self::label_value(&format!("{name}{you}"), if *ready { "READY" } else { "" })
-                }
-                None => Self::label_value("-", ""),
-            };
-            lines.push((row, text));
-        }
-        let watching = match view.watching {
-            0 => String::new(),
-            n => format!("{n} WATCHING"),
-        };
-        lines.push((WATCHING_ROW, Self::label_value(&watching, "")));
-        for s in SETTINGS {
-            lines.push((LobbyItem::Setting(s).row(), Self::label_value(s.label(), &s.value(&view.settings))));
-        }
-        let ready = view.seat.and_then(|s| view.players[s as usize].as_ref()).map(|p| p.1);
-        let ready_line = match ready {
-            Some(r) => Self::label_value("READY", if r { "YES" } else { "NO" }),
-            None => Self::label_value("", ""),
-        };
-        lines.push((READY_ROW, ready_line));
-        lines.push((BACK_ROW, Self::label_value("LEAVE", "")));
         lines
     }
 
-    /// What the cursor can reach: the host gets the settings too; a watcher only LEAVE.
-    fn lobby_items(view: &VersusView) -> Vec<LobbyItem> {
+    /// What the cursor can reach on `page`: the host can change the settings; a watcher has no
+    /// READY.
+    fn lobby_items(view: &VersusView, page: Page) -> Vec<LobbyItem> {
         let mut items = vec![];
-        if view.connection == Connection::InRoom {
-            if view.seat == Some(0) {
-                items.extend(SETTINGS.map(LobbyItem::Setting));
+        match page {
+            Page::Main => {
+                if view.connection == Connection::InRoom {
+                    if view.seat.is_some() {
+                        items.push(LobbyItem::Ready);
+                    }
+                    items.push(LobbyItem::RoomSettings);
+                }
+                items.push(LobbyItem::Leave);
             }
-            if view.seat.is_some() {
-                items.push(LobbyItem::Ready);
+            Page::RoomSettings => {
+                if view.seat == Some(0) {
+                    items.extend(SETTINGS.map(LobbyItem::Setting));
+                }
+                items.push(LobbyItem::Back);
             }
         }
-        items.push(LobbyItem::Leave);
         items
     }
 
     /// The lobby, until LEAVE (or Escape).
     async fn lobby(&mut self) {
         self.versus_panel().await;
-        let mut shown = Self::lobby_lines(&self.view());
+        let mut page = Page::Main;
+        let mut shown = Self::lobby_lines(&self.view(), page);
         for (row, text) in &shown {
             self.put_text(*row, INNER.0, text);
         }
@@ -434,8 +480,12 @@ impl Game {
             if let Some(p) = pending {
                 view.settings = p;
             }
+            // Out of the room: back to the main page.
+            if page == Page::RoomSettings && view.connection != Connection::InRoom {
+                page = Page::Main;
+            }
             // Redraw what changed.
-            let lines = Self::lobby_lines(&view);
+            let lines = Self::lobby_lines(&view, page);
             for (line, old) in lines.iter().zip(&shown) {
                 if line != old {
                     self.queue_text(line.0, INNER.0, &line.1);
@@ -443,20 +493,27 @@ impl Game {
             }
             shown = lines;
             self.ui.colon = shown[0].1.find('.').map(|i| (HEADER_ROW, INNER.0 + i as u8));
-            let items = Self::lobby_items(&view);
+            let items = Self::lobby_items(&view, page);
             // Arriving in the room (seated): the cursor starts on READY.
             let has_ready = items.contains(&LobbyItem::Ready);
             if has_ready && !had_ready {
                 at = LobbyItem::Ready;
             }
-            had_ready = has_ready;
+            if page == Page::Main {
+                had_ready = has_ready;
+            }
             if !items.contains(&at) {
                 at = *items.iter().find(|i| **i == LobbyItem::Ready).unwrap_or(&items[0]);
             }
             let cursor = items.iter().position(|&i| i == at).unwrap();
             let keys = self.menu_pressed();
             let has = |k| keys.contains(&k);
-            if has(MenuKey::Back) || (has(MenuKey::Confirm) && at == LobbyItem::Leave) {
+            let back = has(MenuKey::Back) || (has(MenuKey::Confirm) && matches!(at, LobbyItem::Leave | LobbyItem::Back));
+            if back && page == Page::RoomSettings {
+                self.vars.sfx_init[1] = SFX_MENU_SCREEN;
+                page = Page::Main;
+                at = LobbyItem::RoomSettings;
+            } else if back {
                 self.vars.sfx_init[1] = SFX_MENU_SCREEN;
                 self.ui.colon = None;
                 self.request(VersusRequest::Leave);
@@ -478,6 +535,11 @@ impl Game {
                     LobbyItem::Ready if has(MenuKey::Confirm) => {
                         let ready = view.seat.and_then(|s| view.players[s as usize].as_ref()).is_some_and(|p| p.1);
                         self.request(VersusRequest::Ready(!ready));
+                        self.vars.sfx_init[1] = SFX_MENU_SCREEN;
+                    }
+                    LobbyItem::RoomSettings if has(MenuKey::Confirm) => {
+                        page = Page::RoomSettings;
+                        at = Self::lobby_items(&view, page)[0];
                         self.vars.sfx_init[1] = SFX_MENU_SCREEN;
                     }
                     _ => {}

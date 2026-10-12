@@ -39,8 +39,10 @@ pub struct VersusView {
     pub players: [Option<(String, bool)>; 2],
     pub watching: u32,
     pub settings: RoomSettings,
-    /// A line about what's happening (waiting for a player, the last result...).
+    /// A line about what's happening (waiting for a player, ready for a rematch...).
     pub status: String,
+    /// The last match's result, if there's one to show.
+    pub result: String,
 }
 
 /// What the player asked for this frame.
