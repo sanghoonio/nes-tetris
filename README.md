@@ -157,3 +157,13 @@ computer with different names:
     cargo run --release --features versus -- --name BO
 
 `--server URL` works the same way, for a single run without saving.
+
+To host rooms on the internet, deploy the server in `server/` to Cloudflare (the free plan is
+enough):
+
+    cd server
+    npx wrangler login
+    npx wrangler deploy
+
+It prints the address, `https://nes-tetris.<your-subdomain>.workers.dev`; set `server` under
+`[versus]` to the same with `wss://` in front.
