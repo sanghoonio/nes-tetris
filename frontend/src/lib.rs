@@ -360,13 +360,28 @@ impl Audio {
         let stream = device.build_output_stream(
             config,
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                let mut q = q.lock().unwrap();
+                // Never wait on the game's thread here: if it's pushing, this buffer is silent
+                // (and the samples play next time) rather than late.
+                let Ok(mut q) = q.try_lock() else {
+                    data.fill(0.0);
+                    return;
+                };
                 for frame in data.chunks_mut(channels) {
                     let s = q.pop_front().unwrap_or(0.0);
                     frame.fill(s);
                 }
             },
-            |e| eprintln!("audio: {e}"),
+            {
+                // The device reports each glitch (a buffer it couldn't fill in time); say so once.
+                let mut glitched = false;
+                move |e: cpal::Error| {
+                    if e.kind() != cpal::ErrorKind::Xrun {
+                        eprintln!("audio: {e}");
+                    } else if !std::mem::replace(&mut glitched, true) {
+                        eprintln!("audio: the output fell behind (a glitch); later ones aren't reported");
+                    }
+                }
+            },
             None,
         );
         match stream {
