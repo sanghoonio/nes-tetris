@@ -18,19 +18,19 @@ use tetris_rs::{Config, Rom};
 
 use crate::settings;
 
-/// Each board in a match, as strips of the game screen's columns (from x, to x) laid side by side.
-/// Ours is mirrored: its panel (TOP and SCORE, NEXT, LEVEL) on the outside, then the playfield
-/// with LINES above it. The opponent's is as the game draws it. The statistics and A-TYPE are left
-/// out. The margins and the gap between the playfields are two tiles of background, the width of
-/// the background's bricks: the screen's last column and its first, the only two with nothing
-/// over them.
+/// Each board in a match, as strips of the game screen's columns (from x, to x) laid side by side:
+/// two tiles of background, the playfield (LINES above it) and the panel (TOP and SCORE, NEXT,
+/// LEVEL) as the game draws them, two more tiles of background. The statistics and A-TYPE are
+/// left out. The background tiles are the screen's last column and its first, the only two with
+/// nothing over them; two make the width of the background's bricks, and the boards' meet makes
+/// four between them.
 const BACKGROUND: [(usize, usize); 2] = [(248, 256), (0, 8)];
-const OURS: [(usize, usize); 4] = [BACKGROUND[0], BACKGROUND[1], (184, 248), (88, 184)];
-const THEIRS: [(usize, usize); 5] = [BACKGROUND[0], BACKGROUND[1], (88, 248), BACKGROUND[0], BACKGROUND[1]];
+const BOARD: [(usize, usize); 5] = [BACKGROUND[0], BACKGROUND[1], (88, 248), BACKGROUND[0], BACKGROUND[1]];
 /// The playfield's strip on the game screen.
 const PLAYFIELD: (usize, usize) = (88, 184);
-/// The match picture's width: 176 for ours, 192 for theirs.
-pub const MATCH_WIDTH: usize = 368;
+/// A board's width in the match picture, and the picture's.
+const BOARD_WIDTH: usize = 192;
+pub const MATCH_WIDTH: usize = 2 * BOARD_WIDTH;
 /// How long the result stays over the boards (unless Enter is pressed first).
 const RESULT_MS: u64 = 6000;
 /// The middle of the playfield on the game screen, in pixels from its left.
@@ -334,8 +334,8 @@ impl Versus {
         let left = room.session.match_seat().unwrap_or(0) as usize;
         let width = MATCH_WIDTH;
         let mut pixels = vec![0x0Fu8; width * HEIGHT];
-        let ours = place(&OURS, 0);
-        let theirs = place(&THEIRS, 176);
+        let ours = place(&BOARD, 0);
+        let theirs = place(&BOARD, BOARD_WIDTH);
         let centres = [ours.1, theirs.1];
         for (seat, (strips, middle)) in [(left, &ours), (1 - left, &theirs)] {
             if let Some(board) = &view.boards[seat] {
@@ -349,10 +349,8 @@ impl Versus {
             if let Some(name) = &room.session.match_names()[seat] {
                 draw_text(&rom, &mut pixels, width, middle - 4 * name.len(), 1, name, WHITE);
             }
-            // A player who left after topping out: their board stops, marked. (One who left
-            // before forfeits, which the result says.)
-            let forfeited = matches!(room.session.phase(), Phase::Over { outcome: Outcome::Forfeit { seat: s }, .. } if *s as usize == seat);
-            if room.session.gone()[seat] && !forfeited {
+            // A player who left: their board stops, marked.
+            if room.session.gone()[seat] {
                 draw_text(&rom, &mut pixels, width, middle - 8, 72, "LEFT", WHITE);
             }
         }
@@ -363,24 +361,26 @@ impl Versus {
                     draw_text(&rom, &mut pixels, width, middle - 4 * n.len(), 112, &n, WHITE);
                 }
             }
-            Phase::Over { outcome, scores, confirmed } => {
-                let names = room.session.match_names().clone().map(|n| n.unwrap_or_else(|| "-".to_string()));
-                let headline = match outcome {
-                    Outcome::Win { seat } if room.session.match_seat() == Some(*seat) => "YOU WIN".to_string(),
-                    Outcome::Win { seat } => format!("{} WINS", names[*seat as usize]),
-                    Outcome::Draw => "DRAW".to_string(),
-                    Outcome::Forfeit { seat } => format!("{} LEFT", names[*seat as usize]),
+            Phase::Over { outcome, confirmed, .. } => {
+                // Over the left board only: how it went for its player (us, or the host when
+                // watching).
+                let won = match outcome {
+                    Outcome::Win { seat } => Some(*seat as usize == left),
+                    Outcome::Forfeit { seat } => Some(*seat as usize != left),
+                    Outcome::Draw => None,
                 };
-                let lines = [
-                    headline,
-                    format!("{} - {}", scores[left], scores[1 - left]),
-                    if *confirmed == Some(false) { "DISPUTED".into() } else { String::new() },
-                ];
-                // Over each playfield.
-                for middle in centres {
-                    for (i, line) in lines.iter().filter(|l| !l.is_empty()).enumerate() {
-                        draw_text(&rom, &mut pixels, width, middle.saturating_sub(4 * line.len()), 96 + 12 * i, line, WHITE);
+                let headline = match (won, room.session.match_seat().is_some()) {
+                    (None, _) => "DRAW".to_string(),
+                    (Some(true), true) => "YOU WIN".to_string(),
+                    (Some(false), true) => "YOU LOSE".to_string(),
+                    (Some(w), false) => {
+                        let name = room.session.match_names()[left].clone().unwrap_or_default();
+                        format!("{name} {}", if w { "WINS" } else { "LOSES" })
                     }
+                };
+                let lines = [headline, if *confirmed == Some(false) { "DISPUTED".into() } else { String::new() }];
+                for (i, line) in lines.iter().filter(|l| !l.is_empty()).enumerate() {
+                    draw_text(&rom, &mut pixels, width, centres[0].saturating_sub(4 * line.len()), 96 + 12 * i, line, WHITE);
                 }
             }
             _ => {}
