@@ -4,6 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::limits::{self, MAX_PENDING, MAX_SPECTATORS};
 use crate::{
     clean_name, ConnId, FromRoom, Outcome, Pieces, Player, RoomState, RoomSummary, Seat, Settings, ToRoom,
     BATCH_FRAMES,
@@ -142,7 +143,14 @@ impl Room {
     pub fn handle(&mut self, event: Event) -> Vec<Send> {
         let mut out = Out(vec![]);
         match event {
-            Event::Joined(conn) => self.pending.push(conn),
+            Event::Joined(conn) => {
+                // Too many waiting to say Hello: the oldest goes.
+                if self.pending.len() >= MAX_PENDING {
+                    let oldest = self.pending.remove(0);
+                    out.to(oldest, FromRoom::Closed { reason: limits::NO_HELLO.into() });
+                }
+                self.pending.push(conn);
+            }
             Event::Left(conn) => self.left(conn, &mut out),
             Event::Message(conn, msg) => self.message(conn, msg, &mut out),
         }
@@ -316,6 +324,9 @@ impl Room {
                 self.seats[s] = Some(Occupant { id: self.next_player, bot: false, conn: Some(conn), name: clean_name(name), ready: false });
                 self.next_player += 1;
                 Some(s as Seat)
+            }
+            _ if self.spectators.len() >= MAX_SPECTATORS => {
+                return out.to(conn, FromRoom::Closed { reason: limits::FULL.into() });
             }
             _ => {
                 self.spectators.push(conn);

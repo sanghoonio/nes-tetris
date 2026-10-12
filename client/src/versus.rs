@@ -269,6 +269,12 @@ impl Versus {
                     self.room = None;
                     return;
                 }
+                // Closed by the server: the room is full, or a limit was broken.
+                LinkEvent::Message(protocol::FromRoom::Closed { reason }) => {
+                    self.lost = Some(reason.to_uppercase());
+                    self.room = None;
+                    return;
+                }
                 LinkEvent::Message(msg) => room.session.receive(now, msg),
                 LinkEvent::Closed(why) => {
                     eprintln!("versus: {why}");

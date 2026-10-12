@@ -1,0 +1,65 @@
+# Tests what runs without the ROM, builds the room server and the web page, and on main deploys
+# both to Cloudflare. Needs the repository secrets CLOUDFLARE_API_TOKEN (a token from the "Edit
+# Cloudflare Workers" template) and CLOUDFLARE_ACCOUNT_ID.
+#
+# Most tests play the game and need your ROM, which isn't here; run those locally.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # The game and the web page's engine build with stable; the server pins its own
+      # (server/rust-toolchain.toml).
+      - uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            server -> target
+            web/engine -> target
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Tests that don't need the ROM
+        run: |
+          cargo test -p protocol -p apu
+          cargo test -p netplay --test list
+
+      # The build command in server/wrangler.toml builds the server, then the page.
+      - name: Build
+        if: github.event_name != 'push' || github.ref != 'refs/heads/main'
+        working-directory: server
+        run: npx --yes wrangler@4 deploy --dry-run
+
+      - name: Deploy
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        working-directory: server
+        run: npx --yes wrangler@4 deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

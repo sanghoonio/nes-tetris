@@ -1,6 +1,7 @@
 //! The room's rules: seats and spectators, the host's settings, readying and starting, passing on
 //! inputs, the CTWC ending, disconnects and forfeits, late spectators, and confirming results.
 
+use protocol::limits::{self, MAX_PENDING, MAX_SPECTATORS};
 use protocol::{ConnId, Event, FromRoom, Outcome, Pieces, Room, Send, Settings, ToRoom};
 
 const HOST: ConnId = 1;
@@ -61,6 +62,36 @@ fn seats_then_spectators() {
     let FromRoom::Lobby { players, spectators, .. } = &to(&out, HOST)[0] else { panic!() };
     assert_eq!(players[0].as_ref().unwrap().name, "ANA");
     assert_eq!(*spectators, 2);
+}
+
+#[test]
+fn spectators_are_limited() {
+    let mut room = Room::new(1);
+    hello(&mut room, HOST, "ana", false);
+    hello(&mut room, OPP, "bo", false);
+    for c in 0..MAX_SPECTATORS as ConnId {
+        assert_eq!(to(&hello(&mut room, 100 + c, "cy", true), 100 + c)[0], FromRoom::Welcome { seat: None });
+    }
+    let out = hello(&mut room, 99, "dee", true);
+    assert_eq!(to(&out, 99), [FromRoom::Closed { reason: limits::FULL.into() }]);
+    assert!(to(&out, HOST).is_empty());
+    // One leaves: room again.
+    room.handle(Event::Left(100));
+    assert_eq!(to(&hello(&mut room, 98, "eve", true), 98)[0], FromRoom::Welcome { seat: None });
+}
+
+#[test]
+fn connections_that_never_say_hello_make_way() {
+    let mut room = Room::new(1);
+    for c in 0..MAX_PENDING as ConnId {
+        assert!(room.handle(Event::Joined(10 + c)).is_empty());
+    }
+    // The next closes the oldest, which can no longer say Hello.
+    let out = room.handle(Event::Joined(20));
+    assert_eq!(to(&out, 10), [FromRoom::Closed { reason: limits::NO_HELLO.into() }]);
+    let out = msg(&mut room, 10, ToRoom::Hello { name: "ana".into(), watch: false });
+    assert!(matches!(to(&out, 10)[0], FromRoom::Error { .. }));
+    assert_eq!(to(&msg(&mut room, 20, ToRoom::Hello { name: "bo".into(), watch: false }), 20)[0], FromRoom::Welcome { seat: Some(0) });
 }
 
 #[test]

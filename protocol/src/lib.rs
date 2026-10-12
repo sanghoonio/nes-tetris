@@ -11,6 +11,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod directory;
+pub mod limits;
 pub mod room;
 
 pub use directory::Directory;
@@ -110,6 +111,9 @@ pub enum FromRoom {
     /// The match against the host's bot is paused, or carries on (`ToRoom::Pause`).
     Paused { paused: bool },
     Error { message: String },
+    /// The server is closing the connection, for `reason` (`limits`): the room is full, or the
+    /// client broke a limit.
+    Closed { reason: String },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -278,6 +282,11 @@ impl ToRoom {
 }
 
 impl FromRoom {
+    /// Whether the server closes the connection after sending this.
+    pub fn ends_connection(&self) -> bool {
+        matches!(self, FromRoom::Kicked | FromRoom::Closed { .. })
+    }
+
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).expect("messages serialise")
     }

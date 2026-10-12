@@ -36,14 +36,17 @@ pub struct Settings {
 #[serde(default)]
 pub struct Versus {
     pub name: String,
-    /// The room server: `local-room` (`ws://localhost:8788`) or the deployed Worker (`wss://...`).
+    /// The room server: the deployed Worker, or `local-room` (`ws://localhost:8788`).
     pub server: String,
     pub room: Room,
 }
 
+/// The deployed Worker.
+pub const SERVER: &str = "wss://nes-tetris.sanghoonio.workers.dev";
+
 impl Default for Versus {
     fn default() -> Self {
-        Versus { name: "PLAYER".into(), server: "ws://localhost:8788".into(), room: Room::default() }
+        Versus { name: "PLAYER".into(), server: SERVER.into(), room: Room::default() }
     }
 }
 

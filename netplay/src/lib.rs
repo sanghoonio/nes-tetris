@@ -379,6 +379,8 @@ impl Session {
             }
             FromRoom::Error { message } => self.notes.push(Note::Error(message)),
             FromRoom::Kicked => self.notes.push(Note::Kicked),
+            // The connection ends next (the app shows the reason).
+            FromRoom::Closed { .. } => {}
             FromRoom::Paused { paused } => self.paused = paused,
         }
     }

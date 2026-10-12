@@ -132,7 +132,7 @@ your own bot when you press Escape twice. Others can watch.
 **Playing:** HOST makes a room. JOIN lists the rooms with a seat free and WATCH lists every
 room, matches being played included; choose one, or ENTER A CODE for a room that isn't listed
 (the room code is at the top of its lobby; PUBLIC OFF under ROOM SETTINGS keeps a room off the
-lists). The host sets the level, SAME SEED (both players get
+lists). A room takes 16 spectators. The host sets the level, SAME SEED (both players get
 the same pieces; on unless turned off) and the rules (DAS, hard drop, ghost and so on) under ROOM
 SETTINGS in the room, where the others can look but not change them; both players
 choose READY and the match starts after a countdown. The window widens to show both games side by
@@ -153,30 +153,29 @@ removes it too. OFFLINE on the VERSUS menu plays one with no server at all. A co
 
 Each player needs their own ROM. Only button presses and scores travel between the games.
 
-**Rooms** are run by a small server. To play on your own network, start one on one of the
-computers:
+**Rooms** are run by a small server, at `wss://nes-tetris.sanghoonio.workers.dev` unless
+`server` under `[versus]` in `settings.toml` says otherwise. To play on your own network instead,
+start one on one of the computers:
 
     cargo run --release -p netplay --bin local-room
 
-The game looks for it at `ws://localhost:8788`; to use another computer's, set `server` under
-`[versus]` in `settings.toml` (for example `ws://192.168.1.20:8788`). Two copies can run on one
-computer with different names:
+and set `server` to `ws://localhost:8788` (or that computer's address, for example
+`ws://192.168.1.20:8788`). Two copies can run on one computer with different names:
 
     cargo run --release --features versus -- --name ANA
     cargo run --release --features versus -- --name BO
 
 `--server URL` works the same way, for a single run without saving.
 
-To host rooms on the internet, deploy the server in `server/` to Cloudflare (the free plan is
-enough); it serves the web version too (below):
+The server in `server/` runs on Cloudflare (the free plan is enough) and serves the web version
+too (below). Pushing to `main` deploys it (`.github/workflows/ci.yml`); by hand:
 
     cd server
     npx wrangler login
     npx wrangler deploy
 
 It prints the address, `https://nes-tetris.<your-subdomain>.workers.dev`: the web version is
-there, and the desktop app reaches the rooms by setting `server` under `[versus]` to the same
-with `wss://` in front.
+there, and the desktop app reaches the rooms at the same address with `wss://` in front.
 
 ## In a browser
 

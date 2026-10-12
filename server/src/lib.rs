@@ -10,11 +10,19 @@
 //! sleep without dropping its connections, and isn't billed for the time. Each connection's id
 //! rides along as the socket's attachment. The room is saved to storage whenever no match is on
 //! and reloaded on waking; a match's input log stays in memory (messages every 250 ms keep the
-//! room awake), so a room restarted mid-match loses that match.
+//! room awake), so a room restarted mid-match loses that match. A room nobody is in deletes its
+//! storage.
+//!
+//! Against floods: each address may open `CONNECTS` (a rate limit, in `wrangler.toml`)
+//! connections a minute; rooms take a limited number of connections (`Room`), the list of rooms
+//! `MAX_WATCHERS`; and a connection that sends a message too long or too many is closed, with
+//! the reason (`protocol::limits`).
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 
 use protocol::directory::{Report, REFRESH_MS};
+use protocol::limits::{self, Budget, MAX_MESSAGE_BYTES, MAX_WATCHERS};
 use protocol::{room_code, valid_code, ConnId, Directory, Event, FromDirectory, FromRoom, Room, ToRoom};
 use serde::Serialize;
 use worker::*;
@@ -32,6 +40,11 @@ struct NewRoom {
 async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     let url = req.url()?;
     let path: Vec<String> = url.path().trim_matches('/').split('/').map(str::to_uppercase).collect();
+    // Everything here opens a connection or a room: limited per address.
+    let address = req.headers().get("CF-Connecting-IP")?.unwrap_or_default();
+    if !env.rate_limiter("CONNECTS")?.limit(address).await?.success {
+        return Response::error("too many connections", 429);
+    }
     match path.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
         ["NEW"] => {
             let code = room_code((random() * 9e15) as u64);
@@ -66,6 +79,9 @@ pub struct RoomObject {
     code: RefCell<Option<String>>,
     /// What this room last told the directory, since it woke.
     reported: RefCell<Option<Report>>,
+    /// Each connection's allowance of messages, since the room woke (it sleeps only when nobody
+    /// is sending, by when every allowance is full again).
+    budgets: RefCell<HashMap<ConnId, Budget>>,
 }
 
 impl RoomObject {
@@ -91,16 +107,40 @@ impl RoomObject {
         for send in sends {
             if let Some((_, ws)) = sockets.iter().find(|(c, _)| *c == send.to) {
                 let _ = ws.send_with_str(send.msg.to_json());
-                // Removed by the host: the room has already let them go.
-                if send.msg == FromRoom::Kicked {
-                    let _ = ws.close(Some(1000), Some("removed by the host"));
+                // Removed by the host, or refused: the room has already let them go.
+                if send.msg.ends_connection() {
+                    let _ = ws.close(Some(1000), Some("closed by the room"));
                 }
             }
+        }
+        let empty = self.room.borrow().as_ref().is_some_and(Room::empty);
+        if empty {
+            return self.forget().await;
         }
         if let Some(room) = save {
             self.state.storage().put("room", &room).await?;
         }
         self.report(false).await
+    }
+
+    /// Nobody's in the room: off the list, and its storage deleted (the next to come starts it
+    /// afresh).
+    async fn forget(&self) -> Result<()> {
+        self.report(false).await?;
+        self.state.storage().delete_alarm().await?;
+        self.state.storage().delete_all().await?;
+        *self.room.borrow_mut() = None;
+        *self.code.borrow_mut() = None;
+        *self.reported.borrow_mut() = None;
+        self.budgets.borrow_mut().clear();
+        Ok(())
+    }
+
+    /// Close `ws` (connection `conn`) for breaking a limit: `reason` first, then it leaves.
+    async fn refuse(&self, ws: &WebSocket, conn: ConnId, reason: &str) -> Result<()> {
+        let _ = ws.send_with_str(FromRoom::Closed { reason: reason.into() }.to_json());
+        let _ = ws.close(Some(1008), Some(reason));
+        self.run(Event::Left(conn)).await
     }
 
     /// Tell the directory about the room if that's changed (or `again`), and while anyone is in
@@ -132,6 +172,13 @@ impl RoomObject {
         Ok(())
     }
 
+    /// `ws` closed: its connection leaves the room.
+    async fn gone(&self, ws: &WebSocket) -> Result<()> {
+        let Some(conn) = Self::conn(ws) else { return Ok(()) };
+        self.budgets.borrow_mut().remove(&conn);
+        self.run(Event::Left(conn)).await
+    }
+
     fn conn(ws: &WebSocket) -> Option<ConnId> {
         ws.deserialize_attachment::<ConnId>().ok().flatten()
     }
@@ -139,7 +186,14 @@ impl RoomObject {
 
 impl DurableObject for RoomObject {
     fn new(state: State, env: Env) -> Self {
-        RoomObject { state, env, room: RefCell::new(None), code: RefCell::new(None), reported: RefCell::new(None) }
+        RoomObject {
+            state,
+            env,
+            room: RefCell::new(None),
+            code: RefCell::new(None),
+            reported: RefCell::new(None),
+            budgets: RefCell::new(HashMap::new()),
+        }
     }
 
     async fn fetch(&self, req: Request) -> Result<Response> {
@@ -171,6 +225,17 @@ impl DurableObject for RoomObject {
 
     async fn websocket_message(&self, ws: WebSocket, message: WebSocketIncomingMessage) -> Result<()> {
         let Some(conn) = Self::conn(&ws) else { return Ok(()) };
+        let length = match &message {
+            WebSocketIncomingMessage::String(s) => s.len(),
+            WebSocketIncomingMessage::Binary(b) => b.len(),
+        };
+        if length > MAX_MESSAGE_BYTES {
+            return self.refuse(&ws, conn, limits::TOO_LONG).await;
+        }
+        let spent = self.budgets.borrow_mut().entry(conn).or_insert_with(|| Budget::new(now())).spend(now());
+        if !spent {
+            return self.refuse(&ws, conn, limits::TOO_MANY).await;
+        }
         let parsed = match message {
             WebSocketIncomingMessage::String(s) => ToRoom::from_json(&s),
             WebSocketIncomingMessage::Binary(_) => None,
@@ -186,17 +251,11 @@ impl DurableObject for RoomObject {
 
     async fn websocket_close(&self, ws: WebSocket, _code: usize, _reason: String, _was_clean: bool) -> Result<()> {
         let _ = ws.close(Some(1000), Some("closed"));
-        match Self::conn(&ws) {
-            Some(conn) => self.run(Event::Left(conn)).await,
-            None => Ok(()),
-        }
+        self.gone(&ws).await
     }
 
     async fn websocket_error(&self, ws: WebSocket, _error: Error) -> Result<()> {
-        match Self::conn(&ws) {
-            Some(conn) => self.run(Event::Left(conn)).await,
-            None => Ok(()),
-        }
+        self.gone(&ws).await
     }
 
 }
@@ -257,6 +316,9 @@ impl DurableObject for DirectoryObject {
         }
         if req.headers().get("Upgrade")?.as_deref() != Some("websocket") {
             return Response::error("websocket only", 426);
+        }
+        if self.state.get_websockets().len() >= MAX_WATCHERS {
+            return Response::error("too many watching", 503);
         }
         self.load().await?;
         let pair = WebSocketPair::new()?;

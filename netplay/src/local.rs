@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use protocol::directory::Report;
+use protocol::limits::{self, MAX_MESSAGE_BYTES, MAX_WATCHERS};
 use protocol::{ConnId, Directory, Event, FromDirectory, FromRoom, Room, ToRoom};
 use tungstenite::Message;
 
@@ -78,7 +79,11 @@ fn connection(rooms: Rooms, conn: ConnId, stream: TcpStream) {
         code = req.uri().path().trim_start_matches("/room/").to_uppercase();
         Ok(res)
     };
-    let Ok(mut ws) = tungstenite::accept_hdr(stream, callback) else { return };
+    // Far longer messages than the limit aren't even read in.
+    let config = tungstenite::protocol::WebSocketConfig::default()
+        .max_message_size(Some(16 * MAX_MESSAGE_BYTES))
+        .max_frame_size(Some(16 * MAX_MESSAGE_BYTES));
+    let Ok(mut ws) = tungstenite::accept_hdr_with_config(stream, callback, Some(config)) else { return };
     if code == "/ROOMS" {
         return watch_list(rooms, ws);
     }
@@ -96,21 +101,28 @@ fn connection(rooms: Rooms, conn: ConnId, stream: TcpStream) {
     ws.get_mut().set_nonblocking(true).expect("non-blocking socket");
     loop {
         let mut idle = true;
-        let mut kicked = false;
+        let mut ended = false;
         while let Ok(msg) = outgoing.try_recv() {
-            kicked |= msg == FromRoom::Kicked;
+            ended |= msg.ends_connection();
             let _ = ws.send(Message::text(msg.to_json()));
             idle = false;
         }
         let _ = ws.flush();
-        // Removed by the host: the room has already let them go.
-        if kicked {
+        // Removed by the host, or refused: the room has already let them go.
+        if ended {
             let _ = ws.close(None);
             let _ = ws.flush();
             break;
         }
         match ws.read() {
             Ok(Message::Text(text)) => {
+                // No limit on how many: tests play faster than real time.
+                if text.len() > MAX_MESSAGE_BYTES {
+                    let _ = ws.send(Message::text(FromRoom::Closed { reason: limits::TOO_LONG.into() }.to_json()));
+                    let _ = ws.close(None);
+                    let _ = ws.flush();
+                    break;
+                }
                 match ToRoom::from_json(&text) {
                     Some(msg) => rooms.run(&code, Event::Message(conn, msg)),
                     None => {
@@ -139,6 +151,16 @@ fn watch_list(rooms: Rooms, mut ws: tungstenite::WebSocket<TcpStream>) {
     let (tx, updates) = channel();
     {
         let mut directory = rooms.directory.lock().unwrap();
+        if directory.1.len() >= MAX_WATCHERS {
+            // Watchers that have gone are only noticed on sending.
+            let list = FromDirectory::Rooms { rooms: directory.0.list() };
+            directory.1.retain(|tx| tx.send(list.clone()).is_ok());
+        }
+        if directory.1.len() >= MAX_WATCHERS {
+            let _ = ws.close(None);
+            let _ = ws.flush();
+            return;
+        }
         let _ = tx.send(FromDirectory::Rooms { rooms: directory.0.list() });
         directory.1.push(tx);
     }
