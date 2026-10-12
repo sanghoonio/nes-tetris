@@ -95,7 +95,7 @@ fn main() {
     let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |t| t.as_nanos() as u64) ^ std::process::id() as u64;
     frontend::run("Tetris", options, |rate| {
         #[allow(unused_mut)]
-        let mut app = App::new(rom, Some(rate), settings, seed);
+        let mut app = App::new(rom, Some(rate), settings, seed, true);
         #[cfg(feature = "versus")]
         app.set_versus(args.server.clone(), args.name.as_deref());
         Desktop { app, start: Instant::now(), options: None }

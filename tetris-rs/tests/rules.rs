@@ -10,7 +10,7 @@ use tetris_rs::{buttons, Config, FrameOut, Keys, Options, Rom, Runner, Vars};
 /// buttons the game keys stand for).
 fn game(rules: Rules) -> (Runner, Vars) {
     let rom = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../tetris.nes")).unwrap();
-    let options = Options { menus: true, config: Config { rules, ..Config::default() } };
+    let options = Options { menus: true, exit: true, config: Config { rules, ..Config::default() } };
     let mut game = Runner::with_options(Arc::new(Rom::new(&rom).unwrap()), None, None, options);
     for f in 0..2000 {
         let enter = [10, 40, 70, 100].contains(&f);

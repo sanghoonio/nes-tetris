@@ -96,13 +96,15 @@ impl Default for Config {
 pub struct Options {
     /// The title menu (START / SETTINGS / EXIT) and the settings screen; no attract demo.
     pub menus: bool,
+    /// The title menu has EXIT (not in a web page, which has nothing to exit to).
+    pub exit: bool,
     pub config: Config,
 }
 
 impl Options {
     /// The game as it was.
     pub fn original() -> Self {
-        Options { menus: false, config: Config::default() }
+        Options { menus: false, exit: true, config: Config::default() }
     }
 }
 

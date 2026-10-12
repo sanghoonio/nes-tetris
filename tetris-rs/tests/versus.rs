@@ -18,8 +18,13 @@ struct App {
 
 impl App {
     fn new() -> Self {
+        Self::with_exit(true)
+    }
+
+    /// With EXIT on the title menu or not (a web page).
+    fn with_exit(exit: bool) -> Self {
         let rom = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../tetris.nes")).unwrap();
-        let options = Options { menus: true, config: Config::default() };
+        let options = Options { menus: true, exit, config: Config::default() };
         let runner = Runner::with_options(Arc::new(Rom::new(&rom).unwrap()), None, None, options);
         App { runner, view: VersusView { name: "ANA".into(), ..Default::default() }, requests: vec![], last: None }
     }
@@ -134,6 +139,27 @@ fn title_has_versus() {
     }
     app.tap("Enter", 2);
     assert!(app.last.as_ref().unwrap().quit);
+}
+
+/// Without EXIT (a web page), the title menu is START / VERSUS / SETTINGS, on EXIT's rows: Up from
+/// START wraps to SETTINGS.
+#[test]
+fn title_without_exit() {
+    let mut app = App::with_exit(false);
+    app.idle(10);
+    app.tap("Enter", 20);
+    app.idle(3);
+    app.shot("title_web");
+    // Three down is back on START; Up from there wraps to the last item, SETTINGS.
+    for _ in 0..3 {
+        app.tap("ArrowDown", 3);
+    }
+    app.tap("ArrowUp", 3);
+    app.tap("Enter", 20);
+    app.shot("title_web_settings");
+    app.tap("Escape", 20);
+    assert_eq!(app.mode(), 1);
+    assert!(!app.last.as_ref().unwrap().quit);
 }
 
 /// SETTINGS has BACK on each page (the picture is for looking at).

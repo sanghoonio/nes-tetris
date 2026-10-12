@@ -32,12 +32,10 @@ const PAUSE_TITLE: (&str, u8) = ("PAUSED", 103);
 const PAUSE_ITEMS: [(&str, u8); 2] = [("RESUME", 127), ("QUIT", 139)];
 const PAUSE_CENTRE: u8 = 132;
 
-/// The title menu, left-aligned under the logo where `PUSH START` was (row 20, columns 7..16).
-#[cfg(not(feature = "versus"))]
-const TITLE_ITEMS: [(&str, u8, u8); 3] = [("START", 18, 7), ("SETTINGS", 20, 7), ("EXIT", 22, 7)];
-/// With VERSUS, four items, starting a row higher.
-#[cfg(feature = "versus")]
-const TITLE_ITEMS: [(&str, u8, u8); 4] = [("START", 16, 7), ("VERSUS", 18, 7), ("SETTINGS", 20, 7), ("EXIT", 22, 7)];
+/// The title menu, left-aligned under the logo where `PUSH START` was (row 20, columns 7..16):
+/// double-spaced, the last item on row 22 (so a longer menu starts higher).
+const TITLE_COL: u8 = 7;
+const TITLE_LAST_ROW: u8 = 22;
 /// What each title item does.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum TitleItem {
@@ -51,6 +49,18 @@ enum TitleItem {
 const TITLE_ACTIONS: [TitleItem; 3] = [TitleItem::Start, TitleItem::Settings, TitleItem::Exit];
 #[cfg(feature = "versus")]
 const TITLE_ACTIONS: [TitleItem; 4] = [TitleItem::Start, TitleItem::Versus, TitleItem::Settings, TitleItem::Exit];
+
+impl TitleItem {
+    fn label(self) -> &'static str {
+        match self {
+            TitleItem::Start => "START",
+            #[cfg(feature = "versus")]
+            TitleItem::Versus => "VERSUS",
+            TitleItem::Settings => "SETTINGS",
+            TitleItem::Exit => "EXIT",
+        }
+    }
+}
 const PUSH_START: (u8, u8, usize) = (20, 7, 10);
 
 /// The level grid's first digit cell (row, column); cells are every other column and row.
@@ -294,8 +304,9 @@ impl Game {
         .await;
         let (row, col, len) = PUSH_START;
         self.put_text(row, col, &" ".repeat(len));
-        for (text, row, col) in TITLE_ITEMS {
-            self.put_text(row, col, text);
+        let items = self.title_items();
+        for (i, item) in items.iter().enumerate() {
+            self.put_text(Self::title_row(&items, i), TITLE_COL, item.label());
         }
         self.show_screen().await;
         self.memset_page(0x00, 0x02, 0x02);
@@ -305,12 +316,12 @@ impl Game {
             self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
             let keys = self.menu_pressed();
             let cursor = &mut self.ui.title_cursor;
-            let n = TITLE_ITEMS.len();
+            let n = items.len();
             if keys.contains(&MenuKey::Up) || keys.contains(&MenuKey::Down) {
                 *cursor = (*cursor + if keys.contains(&MenuKey::Up) { n - 1 } else { 1 }) % n;
                 self.vars.sfx_init[1] = SFX_MENU_OPTION;
             } else if keys.contains(&MenuKey::Confirm) {
-                match TITLE_ACTIONS[*cursor] {
+                match items[*cursor] {
                     TitleItem::Start => {
                         self.vars.sfx_init[1] = SFX_MENU_SCREEN;
                         self.vars.game_mode = self.vars.game_mode.wrapping_add(1);
@@ -332,9 +343,18 @@ impl Game {
                     TitleItem::Exit => self.ui.quit = true,
                 }
             }
-            let (text, row, col) = TITLE_ITEMS[self.ui.title_cursor];
-            self.stage_menu_arrows(row, col, text.len());
+            let at = self.ui.title_cursor;
+            self.stage_menu_arrows(Self::title_row(&items, at), TITLE_COL, items[at].label().len());
         }
+    }
+
+    /// The title menu's items: EXIT only where there's something to exit to (`Options::exit`).
+    fn title_items(&self) -> Vec<TitleItem> {
+        TITLE_ACTIONS.into_iter().filter(|&a| a != TitleItem::Exit || self.options.exit).collect()
+    }
+
+    fn title_row(items: &[TitleItem], i: usize) -> u8 {
+        TITLE_LAST_ROW - 2 * (items.len() - 1 - i) as u8
     }
 
     /// The settings screen, until Back (or B). Changes take effect, and are saved by the app,
@@ -384,7 +404,7 @@ impl Game {
                 if previewed {
                     self.set_music_track(crate::play::MUSIC_SILENCE);
                 }
-                self.ui.title_cursor = TITLE_ACTIONS.iter().position(|&a| a == TitleItem::Settings).unwrap();
+                self.ui.title_cursor = self.title_items().iter().position(|&a| a == TitleItem::Settings).unwrap();
                 self.ui.screen = Screen::TitleMenu;
                 return;
             } else if has(MenuKey::Up) || has(MenuKey::Down) {

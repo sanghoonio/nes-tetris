@@ -26,7 +26,7 @@ impl Engine {
     pub fn new(rom: &[u8], settings: Option<String>, sample_rate: u32, server: String, seed: f64) -> Result<Engine, JsError> {
         let rom = Rom::new(rom).map_err(|e| JsError::new(&e.to_string()))?;
         let settings: Settings = settings.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
-        let mut app = App::new(Arc::new(rom), Some(sample_rate), settings, seed.to_bits());
+        let mut app = App::new(Arc::new(rom), Some(sample_rate), settings, seed.to_bits(), false);
         app.set_versus(Some(server), None);
         Ok(Engine { app, rgba: vec![], width: 256, samples: vec![] })
     }
