@@ -107,6 +107,11 @@ body,
   max-width: calc(var(--px) * 8 * 40);
 }
 
+.modal .panel > .info button {
+  display: block;
+  margin: 0 auto;
+}
+
 .info p {
   margin: 0 0 calc(var(--px) * 12);
 }
@@ -138,6 +143,25 @@ body,
   position: fixed;
   right: calc(var(--px) * 6);
   bottom: calc(var(--px) * 4);
+  transition: opacity 0.4s;
+}
+
+.corner.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* The game's menu: one item per line, BACK apart at the bottom, as in the game's panels. */
+.menu {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--px) * 8);
+  min-width: calc(var(--px) * 8 * 16);
+}
+
+.menu .back {
+  margin-top: calc(var(--px) * 12);
 }
 
 a {
