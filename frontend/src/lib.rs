@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, WindowEvent};
+use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::PhysicalKey;
 pub use winit::keyboard::KeyCode;
@@ -47,6 +47,12 @@ pub struct Input {
     pub pressed: Vec<String>,
     /// The window isn't focused (the player switched to another window).
     pub unfocused: bool,
+    /// Files dropped onto the window since the last frame.
+    pub dropped: Vec<std::path::PathBuf>,
+    /// A file is being dragged over the window.
+    pub hovering: bool,
+    /// The left mouse button was pressed in the window since the last frame.
+    pub clicked: bool,
 }
 
 /// How the window plays the game.
@@ -109,6 +115,9 @@ pub fn run<G: Game + 'static>(title: &str, options: Options, make_game: impl FnO
         pressed: Vec::new(),
         pad_held: Vec::new(),
         focused: true,
+        dropped: Vec::new(),
+        hovering: false,
+        clicked: false,
         next_frame: Instant::now(),
         frame: vec![0x0F; options.width * HEIGHT],
         width: options.width,
@@ -132,6 +141,10 @@ struct App<G> {
     /// Gamepad buttons held last frame, by name.
     pad_held: Vec<String>,
     focused: bool,
+    /// Dropped files, whether one is over the window, and a click, since the last frame.
+    dropped: Vec<std::path::PathBuf>,
+    hovering: bool,
+    clicked: bool,
     next_frame: Instant,
     frame: Vec<u8>,
     width: usize,
@@ -181,6 +194,13 @@ impl<G: Game> ApplicationHandler for App<G> {
                     self.held.clear();
                 }
             }
+            WindowEvent::DroppedFile(path) => {
+                self.dropped.push(path);
+                self.hovering = false;
+            }
+            WindowEvent::HoveredFile(_) => self.hovering = true,
+            WindowEvent::HoveredFileCancelled => self.hovering = false,
+            WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => self.clicked = true,
             WindowEvent::RedrawRequested => self.draw(),
             _ => {}
         }
@@ -282,7 +302,9 @@ impl<G> App<G> {
         let mut held: Vec<String> = self.held.iter().map(|&k| key_name(k)).collect();
         held.extend(pads.iter().cloned());
         self.pad_held = pads;
-        Input { held, pressed, unfocused: !self.focused }
+        let dropped = std::mem::take(&mut self.dropped);
+        let clicked = std::mem::take(&mut self.clicked);
+        Input { held, pressed, unfocused: !self.focused, dropped, hovering: self.hovering, clicked }
     }
 
     /// Buttons held on any connected gamepad.

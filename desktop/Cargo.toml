@@ -3,7 +3,7 @@ name = "desktop"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "The desktop app: the readable game in a window, with settings, saved scores and your ROM's data built in"
+description = "The desktop app: the readable game in a window, with settings and saved scores, playing your ROM"
 
 [[bin]]
 name = "tetris"
@@ -15,10 +15,15 @@ tetris-rs = { path = "../tetris-rs" }
 frontend = { path = "../frontend" }
 dirs = "6"
 toml = "0.9"
+# The Open dialog for INSERT ROM (on Linux through the desktop portal, no GTK to build against).
+rfd = "0.17"
 
 [features]
 # VERSUS: matches through a room, over the network.
 versus = ["client/versus"]
+# Your ROM's data and graphics built into the program (build.rs), so it never asks for the ROM.
+# Such a build has Nintendo's material in it: don't share it.
+embedded-rom = []
 
 [build-dependencies]
 sha1_smol = "1"

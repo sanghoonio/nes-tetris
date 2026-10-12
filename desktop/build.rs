@@ -1,7 +1,8 @@
-//! Extracts what the game uses from your ROM, its data and graphics but not its code
-//! (`tetris-rs/src/rom_extract.rs`), into the build (`$OUT_DIR/rom_data.bin`, under the gitignored
-//! `target/`), so the `tetris` binary can embed it and run without a ROM path. The ROM is
-//! $TETRIS_ROM if set, else `nes-tetris/tetris.nes`, and must be Tetris (USA).
+//! With `embedded-rom`: extracts what the game uses from your ROM, its data and graphics but not
+//! its code (`tetris-rs/src/rom_extract.rs`), into the build (`$OUT_DIR/rom_data.bin`, under the
+//! gitignored `target/`), so the `tetris` binary can embed it and never ask for the ROM. The ROM is
+//! $TETRIS_ROM if set, else `nes-tetris/tetris.nes`, and must be Tetris (USA). Without the
+//! feature, nothing: the program asks for the ROM when it runs.
 
 #[path = "../tetris-rs/src/rom_data.rs"]
 mod rom_data;
@@ -15,6 +16,9 @@ use std::path::PathBuf;
 const BODY_SHA1: &str = "fd9079cb5e8479eb06d93c2ae5175bfce871746a";
 
 fn main() {
+    if std::env::var_os("CARGO_FEATURE_EMBEDDED_ROM").is_none() {
+        return;
+    }
     println!("cargo:rerun-if-env-changed=TETRIS_ROM");
     println!("cargo:rerun-if-changed=../tetris-rs/src/rom_data.rs");
     println!("cargo:rerun-if-changed=../tetris-rs/src/rom_extract.rs");

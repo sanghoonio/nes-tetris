@@ -11,6 +11,24 @@ pub fn dir() -> PathBuf {
     dirs::config_dir().expect("no settings folder for this user").join("Tetris")
 }
 
+/// The player's ROM, kept here once given to INSERT ROM.
+pub fn rom_path() -> PathBuf {
+    dir().join("tetris.nes")
+}
+
+/// Keep the ROM given to INSERT ROM, so later launches start straight away.
+pub fn keep_rom(file: &[u8]) {
+    let write = || -> std::io::Result<()> {
+        std::fs::create_dir_all(dir())?;
+        let tmp = dir().join("tetris.nes.tmp");
+        std::fs::write(&tmp, file)?;
+        std::fs::rename(tmp, rom_path())
+    };
+    if let Err(e) = write() {
+        eprintln!("keeping the ROM as {}: {e}", rom_path().display());
+    }
+}
+
 fn path() -> PathBuf {
     dir().join("settings.toml")
 }

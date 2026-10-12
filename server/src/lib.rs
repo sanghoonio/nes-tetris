@@ -17,6 +17,10 @@
 //! connections a minute; rooms take a limited number of connections (`Room`), the list of rooms
 //! `MAX_WATCHERS`; and a connection that sends a message too long or too many is closed, with
 //! the reason (`protocol::limits`).
+//!
+//! Logged (Workers Logs, `wrangler.toml`): panics with their message, errors, and what points to
+//! a bug or abuse: an error sent to a client, a disputed result, a connection closed for a limit,
+//! an unreadable message, a socket error. Addresses aren't logged.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -26,6 +30,11 @@ use protocol::limits::{self, Budget, MAX_MESSAGE_BYTES, MAX_WATCHERS};
 use protocol::{room_code, valid_code, ConnId, Directory, Event, FromDirectory, FromRoom, Room, ToRoom};
 use serde::Serialize;
 use worker::*;
+
+#[event(start)]
+fn start() {
+    console_error_panic_hook::set_once();
+}
 
 fn random() -> f64 {
     js_sys::Math::random()
@@ -43,6 +52,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     // Everything here opens a connection or a room: limited per address.
     let address = req.headers().get("CF-Connecting-IP")?.unwrap_or_default();
     if !env.rate_limiter("CONNECTS")?.limit(address).await?.success {
+        console_warn!("rate limited: {}", url.path());
         return Response::error("too many connections", 429);
     }
     match path.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
@@ -104,6 +114,15 @@ impl RoomObject {
             .into_iter()
             .filter_map(|ws| ws.deserialize_attachment::<ConnId>().ok().flatten().map(|c| (c, ws)))
             .collect();
+        let code = self.code.borrow().clone().unwrap_or_default();
+        for send in &sends {
+            match &send.msg {
+                FromRoom::Error { message } => console_warn!("room {code}: error to a client: {message}"),
+                FromRoom::Confirmed { match_id, agreed: false } => console_warn!("room {code}: match {match_id}'s result disputed"),
+                FromRoom::Closed { reason } => console_warn!("room {code}: closed a connection: {reason}"),
+                _ => {}
+            }
+        }
         for send in sends {
             if let Some((_, ws)) = sockets.iter().find(|(c, _)| *c == send.to) {
                 let _ = ws.send_with_str(send.msg.to_json());
@@ -138,6 +157,7 @@ impl RoomObject {
 
     /// Close `ws` (connection `conn`) for breaking a limit: `reason` first, then it leaves.
     async fn refuse(&self, ws: &WebSocket, conn: ConnId, reason: &str) -> Result<()> {
+        console_warn!("room {}: closed a connection: {reason}", self.code.borrow().clone().unwrap_or_default());
         let _ = ws.send_with_str(FromRoom::Closed { reason: reason.into() }.to_json());
         let _ = ws.close(Some(1008), Some(reason));
         self.run(Event::Left(conn)).await
@@ -243,6 +263,7 @@ impl DurableObject for RoomObject {
         match parsed {
             Some(msg) => self.run(Event::Message(conn, msg)).await,
             None => {
+                console_warn!("room {}: unreadable message", self.code.borrow().clone().unwrap_or_default());
                 let _ = ws.send_with_str(FromRoom::Error { message: "unreadable message".into() }.to_json());
                 Ok(())
             }
@@ -254,7 +275,8 @@ impl DurableObject for RoomObject {
         self.gone(&ws).await
     }
 
-    async fn websocket_error(&self, ws: WebSocket, _error: Error) -> Result<()> {
+    async fn websocket_error(&self, ws: WebSocket, error: Error) -> Result<()> {
+        console_warn!("room {}: socket error: {error}", self.code.borrow().clone().unwrap_or_default());
         self.gone(&ws).await
     }
 
@@ -318,6 +340,7 @@ impl DurableObject for DirectoryObject {
             return Response::error("websocket only", 426);
         }
         if self.state.get_websockets().len() >= MAX_WATCHERS {
+            console_warn!("list of rooms: refused a watcher, {MAX_WATCHERS} watching");
             return Response::error("too many watching", 503);
         }
         self.load().await?;

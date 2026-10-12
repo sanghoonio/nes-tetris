@@ -9,6 +9,8 @@ description = "The rooms for online matches, as a Cloudflare Worker with a Durab
 crate-type = ["cdylib"]
 
 [dependencies]
+# A panic logs its message (Workers Logs) rather than an opaque "unreachable".
+console_error_panic_hook = "0.1"
 protocol = { path = "../protocol" }
 serde = { version = "1", features = ["derive"] }
 worker = "0.8"

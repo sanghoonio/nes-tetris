@@ -16,6 +16,11 @@ bindings = [
   { name = "DIRECTORY", class_name = "DirectoryObject" },
 ]
 
+# Workers Logs: errors, panics and the warnings in src/lib.rs, kept a few days, in the dashboard
+# (Workers > nes-tetris > Logs). The free plan keeps up to 200,000 a day.
+[observability]
+enabled = true
+
 # New connections per address (CF-Connecting-IP), per minute: 30. Counted per Cloudflare location.
 [[ratelimits]]
 name = "CONNECTS"

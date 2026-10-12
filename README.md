@@ -5,7 +5,7 @@ like the original, down to the frame, with a few comforts added on top: proper k
 controls, remappable keys, gamepad support, a settings screen and saved high scores.
 
 **You need your own copy of the game.** This project contains no Nintendo or Tetris code, graphics
-or music. When you build it, it reads them from a ROM file of NES Tetris (USA) that you provide.
+or music. The game reads them from a ROM file of NES Tetris (USA) that you provide.
 
 Not affiliated with or endorsed by Nintendo or The Tetris Company.
 
@@ -22,7 +22,7 @@ Not affiliated with or endorsed by Nintendo or The Tetris Company.
       sudo apt install pkg-config libasound2-dev libudev-dev
 
   (Fedora: `alsa-lib-devel systemd-devel`.)
-- A ROM of **Tetris (USA)** for the NES, as a `.nes` file. The build checks that it's the right
+- A ROM of **Tetris (USA)** for the NES, as a `.nes` file. The game checks that it's the right
   one and tells you if it isn't.
 
 ### Build and run
@@ -32,24 +32,21 @@ Not affiliated with or endorsed by Nintendo or The Tetris Company.
        git clone https://github.com/sanghoonio/nes-tetris.git
        cd nes-tetris
 
-2. Copy your ROM into the folder as `tetris.nes`.
-
-3. Run the game:
+2. Run the game:
 
        cargo run --release
 
-The first build takes a minute or two. The build copies the graphics, music and data tables out
-of your ROM and into the game (the original's program code isn't needed and is left out), so
-after that the program runs on its own without the ROM file.
+3. The first time, it asks for your ROM: drag the file onto the window, or click to choose it.
+   It keeps a copy next to its settings, so after that it starts straight away.
 
-If your ROM is somewhere else, point the build at it instead of copying it:
+The first build takes a minute or two. The finished program is `target/release/tetris`
+(`tetris.exe` on Windows), which you can copy anywhere and run directly. It contains nothing from
+the game, so you can share it.
 
-    TETRIS_ROM=/path/to/your/tetris.nes cargo run --release
-
-(In Windows PowerShell: `$env:TETRIS_ROM="C:\path\to\tetris.nes"; cargo run --release`.)
-
-The finished program is `target/release/tetris` (`tetris.exe` on Windows), which you can copy
-anywhere and run directly.
+To build a copy that never asks, put the ROM in the folder as `tetris.nes` and add
+`--features embedded-rom`. The build copies the game's graphics, music and data tables out of
+your ROM into the program; the ROM file itself and the original's program code aren't included.
+Don't distribute this copy.
 
 ### Make it a Mac app
 
@@ -58,9 +55,9 @@ To get a `Tetris.app` you can open from Finder, Launchpad or Spotlight:
     desktop/macos/bundle.sh --install
 
 This puts the app in `~/Applications`. Without `--install`, the app is left at
-`target/Tetris.app`. Drawing the app icon needs [uv](https://docs.astral.sh/uv/).
-
-The app contains the graphics and music from your ROM, so don't share it.
+`target/Tetris.app`. Drawing the app icon needs [uv](https://docs.astral.sh/uv/). Like the
+program, it asks for your ROM the first time. Add `--embed-rom` to build in your ROM's graphics,
+music and data instead (as `embedded-rom` above), and don't share that one.
 
 ## Controls
 
@@ -116,6 +113,8 @@ NES. Your settings, your last game's choices and your high scores are saved in
 - macOS: `~/Library/Application Support/Tetris/`
 - Linux: `~/.config/Tetris/`
 - Windows: `%APPDATA%\Tetris\`
+
+The ROM you gave it is kept in the same folder as `tetris.nes`. Delete it to be asked again.
 
 ## Versus
 
