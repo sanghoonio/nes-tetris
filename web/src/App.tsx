@@ -2,30 +2,46 @@ import { useEffect, useRef, useState } from "react";
 import { checkRom, Runner } from "./game";
 import { forgetRom, loadRom, saveRom } from "./rom";
 
+const SOURCE = "https://github.com/sanghoonio/nes-tetris";
+
 export default function App() {
   // undefined while looking for a kept ROM.
   const [rom, setRom] = useState<Uint8Array | null | undefined>(undefined);
+  const [info, setInfo] = useState(false);
   useEffect(() => {
     loadRom().then(setRom, () => setRom(null));
   }, []);
   if (rom === undefined) return null;
-  if (rom === null)
-    return (
-      <RomPage
-        onRom={async (r) => {
-          await saveRom(r);
-          setRom(r);
-        }}
-      />
-    );
+  const eject = async () => {
+    await forgetRom();
+    setRom(null);
+  };
   return (
-    <Game
-      rom={rom}
-      onForget={async () => {
-        await forgetRom();
-        setRom(null);
-      }}
-    />
+    <>
+      {rom === null ? (
+        <RomPage
+          onRom={async (r) => {
+            await saveRom(r);
+            setRom(r);
+          }}
+        />
+      ) : (
+        <Game rom={rom} keys={!info} />
+      )}
+      {info && <Info onClose={() => setInfo(false)} />}
+      <div className="corner">
+        <button onClick={() => setInfo(!info)}>Info</button>
+        <a href={SOURCE} target="_blank" rel="noreferrer">
+          GitHub
+        </a>
+        {rom && (
+          <>
+            <button onClick={() => void document.documentElement.requestFullscreen().catch(() => {})}>Fullscreen</button>
+            <button onClick={() => void eject()}>Eject</button>
+          </>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -41,13 +57,13 @@ function RomPage({ onRom }: { onRom: (rom: Uint8Array) => void }) {
   const take = async (file: File | undefined) => {
     if (!file) return;
     const rom = new Uint8Array(await file.arrayBuffer());
-    if (await checkRom(rom)) setError("This ROM won't run. It needs Tetris (USA).");
+    if (await checkRom(rom)) setError("This ROM won't run.");
     else onRom(rom);
   };
   return (
-    <div className="rom">
+    <div className="screen">
       <div
-        className={over ? "panel over" : "panel"}
+        className={over ? "panel drop over" : "panel drop"}
         onClick={() => input.current?.click()}
         onDragOver={(e) => {
           e.preventDefault();
@@ -61,6 +77,7 @@ function RomPage({ onRom }: { onRom: (rom: Uint8Array) => void }) {
         }}
       >
         <p>Insert ROM</p>
+        <p className="dim">NES Tetris (USA)</p>
         {error && <p className="error">{error}</p>}
         <input ref={input} type="file" accept=".nes" hidden onChange={(e) => void take(e.target.files?.[0])} />
       </div>
@@ -68,35 +85,59 @@ function RomPage({ onRom }: { onRom: (rom: Uint8Array) => void }) {
   );
 }
 
+/// What this is, the keys, and where the source is. Escape or a click outside closes it.
+function Info({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => e.code === "Escape" && onClose();
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [onClose]);
+  return (
+    <div className="screen modal" onClick={onClose}>
+      <div className="panel info" onClick={(e) => e.stopPropagation()}>
+        <p>NES Tetris, rebuilt in Rust, running from your own ROM. The ROM stays in this browser.</p>
+        <p>Arrows move, X and Z rotate, Enter chooses, Escape goes back and pauses. Keys can be changed under Settings.</p>
+        <p>Versus plays others online, on the web or the desktop app.</p>
+        <p>
+          Source:{" "}
+          <a href={SOURCE} target="_blank" rel="noreferrer">
+            github.com/sanghoonio/nes-tetris
+          </a>
+        </p>
+        <button onClick={onClose}>Close</button>
+      </div>
+    </div>
+  );
+}
+
 /// The game, from power-on. Sound starts with the first key or click (browsers allow it only
-/// then). EXIT powers it on again.
-function Game({ rom, onForget }: { rom: Uint8Array; onForget: () => void }) {
+/// then). EXIT powers it on again. `keys`: whether the game takes the keyboard (not while the
+/// info panel is up).
+function Game({ rom, keys }: { rom: Uint8Array; keys: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  const runner = useRef<Runner | null>(null);
   const [run, setRun] = useState(0);
   useEffect(() => {
     document.title = "Tetris";
   }, []);
   useEffect(() => {
-    let runner: Runner | null = null;
     let stopped = false;
     void Runner.start(canvas.current!, rom, () => setRun((n) => n + 1)).then((r) => {
       if (stopped) r.stop();
-      else runner = r;
+      else runner.current = r;
     });
     return () => {
       stopped = true;
-      runner?.stop();
+      runner.current?.stop();
+      runner.current = null;
     };
   }, [rom, run]);
+  useEffect(() => {
+    runner.current?.setKeys(keys);
+  }, [keys]);
   return (
-    <>
-      <div className="game">
-        <canvas ref={canvas} />
-      </div>
-      <div className="corner">
-        <button onClick={() => void document.documentElement.requestFullscreen().catch(() => {})}>Fullscreen</button>
-        <button onClick={onForget}>Eject</button>
-      </div>
-    </>
+    <div className="game">
+      <canvas ref={canvas} />
+    </div>
   );
 }

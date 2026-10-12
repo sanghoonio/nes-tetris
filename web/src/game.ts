@@ -68,6 +68,8 @@ export class Runner {
   private pressed: string[] = [];
   private pads = new Set<string>();
   private focused = true;
+  /// Whether the game takes the keyboard.
+  private keys = true;
   private frame = 0;
   private last = 0;
   private behind = 0;
@@ -112,6 +114,12 @@ export class Runner {
     return runner;
   }
 
+  /// Give the game the keyboard, or take it away (for something else on the page).
+  setKeys(on: boolean) {
+    this.keys = on;
+    if (!on) this.held.clear();
+  }
+
   stop() {
     if (this.stopped) return;
     this.stopped = true;
@@ -130,7 +138,7 @@ export class Runner {
     this.on(window, "keydown", (e) => {
       const k = e as KeyboardEvent;
       // Leave the browser's own keys alone (F11, reload, devtools...).
-      if (/^F\d+$/.test(k.code) || k.metaKey || k.ctrlKey) return;
+      if (!this.keys || /^F\d+$/.test(k.code) || k.metaKey || k.ctrlKey) return;
       k.preventDefault();
       if (!k.repeat) {
         this.held.add(k.code);

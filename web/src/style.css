@@ -42,7 +42,7 @@ body,
   display: block;
 }
 
-.rom {
+.screen {
   min-height: 100%;
   display: flex;
   align-items: center;
@@ -78,21 +78,38 @@ body,
     var(--dots-down) top right / calc(var(--px) * 2) 100% no-repeat;
 }
 
-.rom .panel {
-  max-width: calc(var(--px) * 8 * 34);
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+}
+
+.drop {
   text-align: center;
   cursor: pointer;
 }
 
-.rom .panel p {
+.drop p {
   margin: 0;
 }
 
-.rom .panel .error {
+.drop .error {
   margin-top: calc(var(--px) * 12);
 }
 
-.rom .panel.over::before {
+.dim {
+  opacity: 0.6;
+}
+
+.info {
+  max-width: calc(var(--px) * 8 * 40);
+}
+
+.info p {
+  margin: 0 0 calc(var(--px) * 12);
+}
+
+.drop.over::before {
   --yellow: var(--blue);
 }
 
@@ -111,6 +128,14 @@ body,
 
 .corner:hover {
   opacity: 1;
+}
+
+a {
+  color: inherit;
+}
+
+a:hover {
+  color: var(--yellow);
 }
 
 button {
