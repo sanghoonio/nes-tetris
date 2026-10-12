@@ -124,13 +124,17 @@ impl Backdrop {
     /// Lay whole pieces over every cell of a `cols` by `rows` picture that isn't `boxed`.
     pub fn new(cols: usize, rows: usize, boxed: impl Fn(usize, usize) -> bool) -> Self {
         let (w, h) = (cols + 2 * BEYOND, rows + 2 * BEYOND);
-        let free: Vec<bool> = (0..w * h)
+        let mut free: Vec<bool> = (0..w * h)
             .map(|i| {
                 let (r, c) = (i / w, i % w);
                 let inside = (BEYOND..BEYOND + rows).contains(&r) && (BEYOND..BEYOND + cols).contains(&c);
                 !inside || !boxed(r - BEYOND, c - BEYOND)
             })
             .collect();
+        // Whole pieces need a multiple of four cells: leave out a few past the top-left corner,
+        // where they're never seen.
+        let extra = free.iter().filter(|&&f| f).count() % 4;
+        free[..extra].fill(false);
         let piece = tile(w, h, &free).expect("the pattern can always be laid");
         Backdrop { cols, rows, piece }
     }
@@ -311,14 +315,16 @@ mod tests {
     fn lays_whole_pieces() {
         let rom = Rom::from_extracted(crate::ROM_DATA).unwrap();
         let boxes = game_boxes(&rom);
-        for margin in 2..=4 {
-            for gap in 3..=6 {
-                let cols = 2 * margin + 40 + gap;
+        for (margin, gap, widen) in (2..=4).flat_map(|m| (3..=6).flat_map(move |g| [(m, g, false), (m, g, true)])) {
+            {
+                let cols = 2 * margin + 42 + gap;
                 let start = std::time::Instant::now();
                 let b = Backdrop::new(cols, 30, |r, c| {
                     (0..2).any(|i| {
-                        let at = margin + i * (20 + gap);
-                        (at..at + 20).contains(&c) && boxes[r][c - at + 11]
+                        let at = margin + i * (21 + gap);
+                        // With a widened score box, as the match view has (rows 2..=10 a tile wider).
+                        let width = if (2..=10).contains(&r) && widen { 21 } else { 20 };
+                        (at..at + width).contains(&c) && boxes[r][(c - at + 11).min(30)]
                     })
                 });
                 assert!(start.elapsed().as_millis() < 500, "margin {margin}, gap {gap}: {:?}", start.elapsed());
