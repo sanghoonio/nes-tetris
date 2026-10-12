@@ -13,7 +13,7 @@ use netplay::{Link, LinkEvent, Note, Phase, Session, HEIGHT, WIDTH};
 use protocol::{Outcome, Pieces, Settings};
 use tetris_rs::options::LeftRight;
 use tetris_rs::pc_input::play_buttons;
-use tetris_rs::versus::{draw_text, Connection, RoomSettings, VersusRequest, VersusView, BLACK, WHITE};
+use tetris_rs::versus::{draw_glyphs, draw_text, Connection, RoomSettings, VersusRequest, VersusView, BLACK, WHITE};
 use tetris_rs::{Config, Rom};
 
 use crate::backdrop::{self, Backdrop};
@@ -24,7 +24,7 @@ use crate::settings;
 /// SCORE, NEXT, LEVEL; not the statistics or A-TYPE), with a gap between the boards. The
 /// background is laid afresh across all of it (`backdrop`).
 const MARGIN: usize = 3;
-const GAP: usize = 5;
+const GAP: usize = 4;
 const BOARD_COLS: (usize, usize) = (11, 31);
 const MATCH_COLS: usize = 2 * MARGIN + 2 * (BOARD_COLS.1 - BOARD_COLS.0) + GAP;
 pub const MATCH_WIDTH: usize = 8 * MATCH_COLS;
@@ -75,6 +75,8 @@ pub struct Versus {
     /// The game screen's box cells, and the match picture's background.
     boxes: [[bool; 32]; 30],
     backdrop: Backdrop,
+    /// The game screen with nothing in it, for a board whose game hasn't begun.
+    empty: Vec<u8>,
 }
 
 struct Room {
@@ -116,7 +118,8 @@ impl Versus {
         let backdrop = Backdrop::new(MATCH_COLS, HEIGHT / 8, |r, c| {
             (0..2).any(|i| (board_col(i)..board_col(i) + BOARD_COLS.1 - BOARD_COLS.0).contains(&c) && boxes[r][c - board_col(i) + BOARD_COLS.0])
         });
-        Versus { rom, sample_rate, start: Instant::now(), server, name, music: 0, room: None, lost: None, boxes, backdrop }
+        let empty = backdrop::empty_game_screen(&rom);
+        Versus { rom, sample_rate, start: Instant::now(), server, name, music: 0, room: None, lost: None, boxes, backdrop, empty }
     }
 
     fn now(&self) -> u64 {
@@ -360,8 +363,8 @@ impl Versus {
             let middle = centres[i];
             // Each board's name, under its playfield.
             draw_text(&rom, &mut pixels, width, middle - 4 * names[seat].len(), BOTTOM_Y, &names[seat], WHITE);
-            // Nothing more until the game's picture comes (at the end of the countdown).
-            let Some(board) = &view.boards[seat] else { continue };
+            // Until the game's picture comes (at the end of the countdown), the empty boxes.
+            let board = view.boards[seat].as_deref().map_or(&self.empty[..], |b| &b[..]);
             // The game's boxes, a tile at a time; the background between them is the backdrop's.
             for r in 0..30 {
                 for c in BOARD_COLS.0..BOARD_COLS.1 {
@@ -380,9 +383,13 @@ impl Versus {
             }
             let diff = scores[seat] as i64 - scores[1 - seat] as i64;
             let colour = if diff >= 0 { GREEN } else { RED };
-            draw_text(&rom, &mut pixels, width, sx(SCORE_X), SCORE_LINES[0], "SCORE", WHITE);
-            draw_text(&rom, &mut pixels, width, sx(SCORE_X), SCORE_LINES[1], &format!("{:06}", scores[seat].min(999_999)), WHITE);
-            draw_text(&rom, &mut pixels, width, sx(SCORE_X), SCORE_LINES[2], &format!("{:06}", diff.unsigned_abs().min(999_999)), colour);
+            // The letters alone: a box round them would cover the frame.
+            draw_glyphs(&rom, &mut pixels, width, sx(SCORE_X), SCORE_LINES[0], "SCORE", WHITE);
+            if view.boards[seat].is_none() {
+                continue;
+            }
+            draw_glyphs(&rom, &mut pixels, width, sx(SCORE_X), SCORE_LINES[1], &format!("{:06}", scores[seat].min(999_999)), WHITE);
+            draw_glyphs(&rom, &mut pixels, width, sx(SCORE_X), SCORE_LINES[2], &format!("{:06}", diff.unsigned_abs().min(999_999)), colour);
             let sign = if diff >= 0 { PLUS } else { MINUS };
             for (dy, bits) in sign.iter().enumerate() {
                 for dx in 0..5 {

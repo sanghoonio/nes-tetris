@@ -109,6 +109,17 @@ pub fn draw_text(rom: &Rom, pixels: &mut [u8], width: usize, x: usize, y: usize,
             put(px, py, BLACK);
         }
     }
+    draw_glyphs(rom, pixels, width, x, y, text, colour);
+}
+
+/// As `draw_text`, without the box: the letters alone.
+pub fn draw_glyphs(rom: &Rom, pixels: &mut [u8], width: usize, x: usize, y: usize, text: &str, colour: u8) {
+    let height = pixels.len() / width;
+    let mut put = |px: usize, py: usize, c: u8| {
+        if px < width && py < height {
+            pixels[py * width + px] = c;
+        }
+    };
     for (i, ch) in text.chars().enumerate() {
         let Some(index) = NAME_CHARS.find(ch).filter(|_| ch != ' ') else { continue };
         // The menus' tiles are the first 4 KB of CHR (bank 0, the background table).
