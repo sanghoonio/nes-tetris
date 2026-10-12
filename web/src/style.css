@@ -43,6 +43,8 @@ body,
 }
 
 .screen {
+  flex-direction: column;
+  gap: calc(var(--px) * 12);
   min-height: 100%;
   display: flex;
   align-items: center;
@@ -117,21 +119,30 @@ body,
   color: var(--red);
 }
 
+/* INFO and GITHUB (and in the game, FULLSCREEN and EJECT): dim until pointed at, each on its own. */
+.links {
+  display: flex;
+  justify-content: center;
+  gap: calc(var(--px) * 12);
+}
+
+.links > * {
+  opacity: 0.5;
+}
+
+.links > *:hover {
+  opacity: 1;
+}
+
 .corner {
   position: fixed;
   right: calc(var(--px) * 6);
   bottom: calc(var(--px) * 4);
-  display: flex;
-  gap: calc(var(--px) * 8);
-  opacity: 0.35;
-}
-
-.corner:hover {
-  opacity: 1;
 }
 
 a {
   color: inherit;
+  text-decoration: none;
 }
 
 a:hover {

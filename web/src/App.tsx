@@ -12,6 +12,14 @@ export default function App() {
     loadRom().then(setRom, () => setRom(null));
   }, []);
   if (rom === undefined) return null;
+  const links = (
+    <>
+      <button onClick={() => setInfo(!info)}>Info</button>
+      <a href={SOURCE} target="_blank" rel="noreferrer">
+        GitHub
+      </a>
+    </>
+  );
   const eject = async () => {
     await forgetRom();
     setRom(null);
@@ -24,30 +32,26 @@ export default function App() {
             await saveRom(r);
             setRom(r);
           }}
+          links={links}
         />
       ) : (
-        <Game rom={rom} keys={!info} />
-      )}
-      {info && <Info onClose={() => setInfo(false)} />}
-      <div className="corner">
-        <button onClick={() => setInfo(!info)}>Info</button>
-        <a href={SOURCE} target="_blank" rel="noreferrer">
-          GitHub
-        </a>
-        {rom && (
-          <>
+        <>
+          <Game rom={rom} keys={!info} />
+          <div className="links corner">
+            {links}
             <button onClick={() => void document.documentElement.requestFullscreen().catch(() => {})}>Fullscreen</button>
             <button onClick={() => void eject()}>Eject</button>
-          </>
-        )}
-      </div>
+          </div>
+        </>
+      )}
+      {info && <Info onClose={() => setInfo(false)} />}
     </>
   );
 }
 
 /// INSERT ROM: the panel is where the ROM file goes (dropped, or chosen with a click). Asked
 /// once; the browser keeps it.
-function RomPage({ onRom }: { onRom: (rom: Uint8Array) => void }) {
+function RomPage({ onRom, links }: { onRom: (rom: Uint8Array) => void; links: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
@@ -81,6 +85,7 @@ function RomPage({ onRom }: { onRom: (rom: Uint8Array) => void }) {
         {error && <p className="error">{error}</p>}
         <input ref={input} type="file" accept=".nes" hidden onChange={(e) => void take(e.target.files?.[0])} />
       </div>
+      <div className="links">{links}</div>
     </div>
   );
 }
