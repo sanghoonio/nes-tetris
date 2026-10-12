@@ -73,6 +73,9 @@ pub struct Session {
     seeds: [u32; 2],
     /// The player's own game, from the end of the countdown.
     own: Option<Own>,
+    /// The host's bot's seat in this match, and its game (run here, on the host's machine).
+    bot_seat: Option<Seat>,
+    bot: Option<(Own, bots::Bot)>,
     replicas: [Option<Replica>; 2],
     /// The result's frames, until both games have reached them and the report is sent.
     report_due: Option<[u32; 2]>,
@@ -94,6 +97,11 @@ pub struct Session {
 
 struct Own {
     runner: Runner,
+    /// The seat whose game this is, when it isn't the sender's own (the host's bot).
+    seat: Option<Seat>,
+    rules: Rules,
+    /// The game's RAM after the last frame (for a bot to look at).
+    ram: Box<[u8; 0x800]>,
     /// Score after each frame (`scores[n]` after `n` frames).
     scores: Vec<u32>,
     batch: Vec<u8>,
@@ -135,6 +143,8 @@ impl Session {
             match_id: 0,
             seeds: [0, 0],
             own: None,
+            bot_seat: None,
+            bot: None,
             replicas: [None, None],
             report_due: None,
             match_seat: None,
@@ -173,15 +183,24 @@ impl Session {
         self.settings
     }
 
-    /// Each seat's score as this session last saw it (own game, or replica).
+    /// Each seat's score as this session last saw it (own game, the bot's, or a replica).
     pub fn scores(&self) -> [Option<u32>; 2] {
-        [0, 1].map(|s| {
-            if self.match_seat == Some(s as Seat) {
-                self.own.as_ref().map(|o| *o.scores.last().unwrap())
-            } else {
-                self.replicas[s].as_ref().map(|r| *r.scores.last().unwrap())
-            }
+        [0, 1].map(|s| match self.played_here(s) {
+            Some(own) => own.map(|o| *o.scores.last().unwrap()),
+            None => self.replicas[s].as_ref().map(|r| *r.scores.last().unwrap()),
         })
+    }
+
+    /// The game for seat `s` if this session plays it (its own, or its bot's): some (none until
+    /// it starts); none if it's replicated.
+    fn played_here(&self, s: usize) -> Option<Option<&Own>> {
+        if self.match_seat == Some(s as Seat) {
+            Some(self.own.as_ref())
+        } else if self.bot_seat == Some(s as Seat) {
+            Some(self.bot.as_ref().map(|b| &b.0))
+        } else {
+            None
+        }
     }
 
     /// Checksums each replica has matched so far (none for the player's own seat).
@@ -231,6 +250,11 @@ impl Session {
         self.outbox.push(ToRoom::Kick);
     }
 
+    /// As host, seat a bot from the roster by name (between matches). This session plays it.
+    pub fn add_bot(&mut self, name: &str) {
+        self.outbox.push(ToRoom::AddBot { name: name.to_string() });
+    }
+
     pub fn receive(&mut self, now: u64, msg: FromRoom) {
         match msg {
             FromRoom::Welcome { seat } => {
@@ -254,8 +278,15 @@ impl Session {
                 self.match_seat = self.seat;
                 self.match_names = self.players.clone().map(|p| p.map(|p| p.name));
                 self.match_ids = self.players.clone().map(|p| p.map(|p| p.id));
+                // The host plays its bot's game here.
+                self.bot = None;
+                self.bot_seat = (self.seat == Some(0))
+                    .then(|| (0..2).find(|&s| self.players[s].as_ref().is_some_and(|p| p.bot)))
+                    .flatten()
+                    .map(|s| s as Seat);
                 self.replicas = [0, 1].map(|s| {
-                    (self.match_seat != Some(s as Seat)).then(|| Replica::new(Runner::start_game(self.rom.clone(), None, self.setup(s))))
+                    (self.match_seat != Some(s as Seat) && self.bot_seat != Some(s as Seat))
+                        .then(|| Replica::new(Runner::start_game(self.rom.clone(), None, self.setup(s))))
                 });
                 self.phase = Phase::Countdown { at: now + countdown_ms };
             }
@@ -299,6 +330,7 @@ impl Session {
             FromRoom::Abandoned { .. } => {
                 self.phase = Phase::Lobby;
                 self.own = None;
+                self.bot = None;
                 self.replicas = [None, None];
                 self.notes.push(Note::Abandoned);
             }
@@ -314,8 +346,14 @@ impl Session {
                 self.phase = Phase::Playing;
                 if let Some(s) = self.match_seat {
                     let setup = GameSetup { music: self.music, ..self.setup(s as usize) };
-                    let runner = Runner::start_game(self.rom.clone(), self.sample_rate, setup);
-                    self.own = Some(Own { runner, scores: vec![0], batch: vec![], frames: 0, over: false, last: None });
+                    self.own = Some(Own::new(Runner::start_game(self.rom.clone(), self.sample_rate, setup), None, setup.rules));
+                }
+                if let Some(s) = self.bot_seat {
+                    let setup = GameSetup { music: 3, ..self.setup(s as usize) };
+                    let name = self.match_names[s as usize].clone().unwrap_or_default();
+                    let profile = bots::profile(&name).unwrap_or(bots::ROSTER[2].1);
+                    let bot = bots::Bot::new(&self.rom, profile, self.seeds[s as usize] as u64 ^ self.match_id as u64);
+                    self.bot = Some((Own::new(Runner::start_game(self.rom.clone(), None, setup), Some(s), setup.rules), bot));
                 }
             }
         }
@@ -323,6 +361,10 @@ impl Session {
         if self.phase == Phase::Playing {
             if let Some(own) = self.own.as_mut() {
                 samples = own.step(buttons, &mut self.outbox);
+            }
+            if let Some((game, bot)) = self.bot.as_mut() {
+                let pressed = bot.buttons(&game.ram, &game.rules);
+                game.step(pressed, &mut self.outbox);
             }
         }
         let decided = matches!(self.phase, Phase::Over { .. });
@@ -343,12 +385,9 @@ impl Session {
             }
         }
         self.report_if_ready();
-        let boards = [0, 1].map(|s| {
-            if self.match_seat == Some(s as Seat) {
-                self.own.as_ref().and_then(|o| o.last.clone())
-            } else {
-                self.replicas[s].as_ref().and_then(|r| r.last.clone())
-            }
+        let boards = [0, 1].map(|s| match self.played_here(s) {
+            Some(own) => own.and_then(|o| o.last.clone()),
+            None => self.replicas[s].as_ref().and_then(|r| r.last.clone()),
         });
         View { boards, samples }
     }
@@ -359,10 +398,9 @@ impl Session {
         let mut scores = [0; 2];
         for s in 0..2 {
             let f = frames[s] as usize;
-            let have = if self.match_seat == Some(s as Seat) {
-                self.own.as_ref().map(|o| o.scores.get(f).copied())
-            } else {
-                self.replicas[s].as_ref().map(|r| (r.played >= f).then(|| r.scores[f]))
+            let have = match self.played_here(s) {
+                Some(own) => own.map(|o| o.scores.get(f).copied()),
+                None => self.replicas[s].as_ref().map(|r| (r.played >= f).then(|| r.scores[f])),
             };
             match have {
                 Some(Some(score)) => scores[s] = score,
@@ -410,10 +448,15 @@ impl Session {
 }
 
 impl Own {
-    /// A frame of the player's game; inputs and checksums go out as they fall due.
+    fn new(runner: Runner, seat: Option<Seat>, rules: Rules) -> Own {
+        Own { runner, seat, rules, ram: Box::new([0; 0x800]), scores: vec![0], batch: vec![], frames: 0, over: false, last: None }
+    }
+
+    /// A frame of the player's game (or the bot's); inputs and checksums go out as they fall due.
     fn step(&mut self, buttons: u8, outbox: &mut Vec<ToRoom>) -> Vec<f32> {
         let out = self.runner.next_frame(buttons);
         self.last = Some(out.pixels.clone());
+        *self.ram = out.ram;
         if self.over {
             return out.samples;
         }
@@ -425,10 +468,10 @@ impl Own {
         if self.batch.len() == BATCH_FRAMES || self.over {
             let buttons = std::mem::take(&mut self.batch);
             let frame = self.frames - buttons.len() as u32;
-            outbox.push(ToRoom::Inputs { frame, buttons, score, over: self.over });
+            outbox.push(ToRoom::Inputs { frame, buttons, score, over: self.over, seat: self.seat });
         }
         if self.frames.is_multiple_of(CHECKSUM_FRAMES) {
-            outbox.push(ToRoom::Checksum { frame: self.frames, hash: checksum(&out.ram) });
+            outbox.push(ToRoom::Checksum { frame: self.frames, hash: checksum(&out.ram), seat: self.seat });
         }
         out.samples
     }

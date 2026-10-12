@@ -460,6 +460,42 @@ mod tests {
         run("PLAYER left", &mut copies, 10, |c| c[0].view().series == ["PLAYER LEFT"]);
     }
 
+    /// The host adds a bot from the lobby and plays it: the bot's game runs on the host's
+    /// machine, the result is confirmed, and the score between them counts it; the host kicks it.
+    #[test]
+    fn a_match_against_a_bot() {
+        let server = local_room();
+        let mut host = Copy::new(&server, "ANA");
+        host.open_versus(0);
+        let mut copies = vec![host];
+        run("host in room", &mut copies, 10, |c| c[0].view().connection == Connection::InRoom);
+        // Down from READY to LEAVE, Right to ADD BOT.
+        copies[0].tap("ArrowDown", 2);
+        copies[0].tap("ArrowRight", 2);
+        copies[0].tap("Enter", 2);
+        run("a bot seated", &mut copies, 10, |c| c[0].view().players[1].as_ref().is_some_and(|p| p.0.ends_with(" (BOT)") && p.1));
+        let bot = copies[0].view().players[1].clone().unwrap().0;
+        // The cursor's back on READY.
+        copies[0].idle(5);
+        copies[0].tap("Enter", 2);
+        run("the match", &mut copies, 20, |c| c[0].app.versus.in_match());
+        run("confirmed", &mut copies, 120, |c| c[0].app.versus.confirmed());
+        copies[0].shot("match_bot");
+        copies[0].tap("Enter", 2);
+        run("back to lobby", &mut copies, 10, |c| !c[0].app.versus.in_match());
+        let name = bot.trim_end_matches(" (BOT)");
+        let series = &copies[0].view().series;
+        assert!(series.len() == 1 && series[0].starts_with("ANA ") && series[0].ends_with(name), "{series:?}");
+        // KICK? YES removes it (Up past ROOM SETTINGS to its name).
+        copies[0].idle(GUARD_FRAMES as usize);
+        copies[0].tap("ArrowUp", 2);
+        copies[0].tap("ArrowUp", 2);
+        copies[0].tap("Enter", 2);
+        copies[0].tap("ArrowRight", 2);
+        copies[0].tap("Enter", 2);
+        run("the bot gone", &mut copies, 10, |c| c[0].view().players[1].is_none());
+    }
+
     #[test]
     fn escape_twice_leaves_a_match() {
         let server = local_room();

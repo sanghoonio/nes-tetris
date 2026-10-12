@@ -21,7 +21,7 @@ fn msg(room: &mut Room, conn: ConnId, m: ToRoom) -> Vec<Send> {
 }
 
 fn inputs(room: &mut Room, conn: ConnId, frame: u32, n: usize, score: u32, over: bool) -> Vec<Send> {
-    msg(room, conn, ToRoom::Inputs { frame, buttons: vec![0; n], score, over })
+    msg(room, conn, ToRoom::Inputs { frame, buttons: vec![0; n], score, over, seat: None })
 }
 
 /// Host, opponent and a spectator, the match started.
@@ -111,7 +111,7 @@ fn inputs_are_passed_on_in_order() {
     let out = inputs(&mut room, WATCHER, 0, 15, 0, false);
     assert!(matches!(to(&out, WATCHER)[0], FromRoom::Error { .. }));
     // Checksums are passed on too.
-    let out = msg(&mut room, OPP, ToRoom::Checksum { frame: 60, hash: 99 });
+    let out = msg(&mut room, OPP, ToRoom::Checksum { frame: 60, hash: 99, seat: None });
     assert_eq!(to(&out, HOST), vec![FromRoom::Checksum { seat: 1, frame: 60, hash: 99 }]);
 }
 
@@ -261,7 +261,7 @@ fn lobby_state_survives_saving() {
 
 #[test]
 fn messages_as_json() {
-    let m = ToRoom::Inputs { frame: 15, buttons: vec![0, 4, 4], score: 120, over: false };
+    let m = ToRoom::Inputs { frame: 15, buttons: vec![0, 4, 4], score: 120, over: false, seat: None };
     assert_eq!(m.to_json(), r#"{"type":"Inputs","frame":15,"buttons":[0,4,4],"score":120,"over":false}"#);
     assert_eq!(ToRoom::from_json(&m.to_json()), Some(m));
     assert_eq!(ToRoom::from_json("{nonsense"), None);
@@ -313,4 +313,79 @@ fn players_with_one_name_are_told_apart() {
     let [a, b] = players.unwrap().map(Option::unwrap);
     assert_eq!((a.name.as_str(), b.name.as_str()), ("PLAYER", "PLAYER"), "names as given");
     assert_ne!(a.id, b.id);
+}
+
+fn lobby_players(out: &[Send], conn: ConnId) -> [Option<protocol::Player>; 2] {
+    to(out, conn).into_iter().rev().find_map(|m| match m {
+        FromRoom::Lobby { players, .. } => Some(players),
+        _ => None,
+    }).expect("a lobby")
+}
+
+/// The host adds a bot: it takes the free seat, ready; the match starts when the host readies;
+/// the host sends its inputs, nobody else can; it wins or loses like anyone.
+#[test]
+fn a_bot_plays_for_the_host() {
+    let mut room = Room::new(3);
+    hello(&mut room, HOST, "ana", false);
+    hello(&mut room, WATCHER, "cy", true);
+    assert!(to(&msg(&mut room, WATCHER, ToRoom::AddBot { name: "pixel".into() }), WATCHER).iter().any(|m| matches!(m, FromRoom::Error { .. })), "only the host");
+    let out = msg(&mut room, HOST, ToRoom::AddBot { name: "pixel".into() });
+    let [_, bot] = lobby_players(&out, WATCHER);
+    let bot = bot.expect("seated");
+    assert!(bot.bot && bot.ready && bot.name == "PIXEL");
+    // Nobody else can sit; a newcomer watches.
+    assert_eq!(to(&hello(&mut room, OPP, "bo", false), OPP)[0], FromRoom::Welcome { seat: None });
+    let out = msg(&mut room, HOST, ToRoom::Ready { ready: true });
+    assert!(to(&out, WATCHER).iter().any(|m| matches!(m, FromRoom::Start { .. })));
+    // The host plays both seats; the bot's seat only with `seat`. A watcher can't.
+    let bot_inputs = |over| ToRoom::Inputs { frame: 0, buttons: vec![0; 15], score: 100, over, seat: Some(1) };
+    assert!(to(&msg(&mut room, OPP, bot_inputs(false)), OPP).iter().any(|m| matches!(m, FromRoom::Error { .. })));
+    let out = msg(&mut room, HOST, bot_inputs(true));
+    assert!(to(&out, WATCHER).contains(&FromRoom::Inputs { seat: 1, frame: 0, buttons: vec![0; 15], score: 100, over: true }));
+    assert!(to(&out, HOST).is_empty(), "not back to the host");
+    // The host passes the bot's 100: the host wins.
+    let out = inputs(&mut room, HOST, 0, 15, 200, false);
+    let (outcome, scores, _) = result(&out, WATCHER).expect("a result");
+    assert_eq!((outcome, scores), (Outcome::Win { seat: 0 }, [200, 100]));
+    // The bot stays seated and ready for a rematch.
+    assert!(lobby_players(&out, WATCHER)[1].as_ref().unwrap().ready);
+    // Only the host's report is waited for.
+    let out = msg(&mut room, HOST, ToRoom::Report { match_id: 1, scores: [200, 100] });
+    assert!(to(&out, WATCHER).contains(&FromRoom::Confirmed { match_id: 1, agreed: true }));
+    // The host kicks it.
+    let out = msg(&mut room, HOST, ToRoom::Kick);
+    assert!(lobby_players(&out, WATCHER)[1].is_none());
+    assert!(to(&out, HOST).iter().all(|m| !matches!(m, FromRoom::Kicked)));
+}
+
+/// The bot leaves with its host: between matches the room empties of players; during a match
+/// both seats are gone and the match is abandoned.
+#[test]
+fn a_bot_leaves_with_its_host() {
+    let mut room = Room::new(3);
+    hello(&mut room, HOST, "ana", false);
+    hello(&mut room, WATCHER, "cy", true);
+    msg(&mut room, HOST, ToRoom::AddBot { name: "byte".into() });
+    let out = room.handle(Event::Left(HOST));
+    assert_eq!(lobby_players(&out, WATCHER), [None, None]);
+
+    let mut room = Room::new(3);
+    hello(&mut room, HOST, "ana", false);
+    hello(&mut room, WATCHER, "cy", true);
+    msg(&mut room, HOST, ToRoom::AddBot { name: "byte".into() });
+    msg(&mut room, HOST, ToRoom::Ready { ready: true });
+    assert!(room.playing());
+    let out = room.handle(Event::Left(HOST));
+    assert!(to(&out, WATCHER).iter().any(|m| matches!(m, FromRoom::Abandoned { .. })));
+    assert!(!room.playing());
+}
+
+/// Messages go to each connection once, though the host also plays the bot.
+#[test]
+fn the_host_hears_once() {
+    let mut room = Room::new(3);
+    hello(&mut room, HOST, "ana", false);
+    let out = msg(&mut room, HOST, ToRoom::AddBot { name: "byte".into() });
+    assert_eq!(to(&out, HOST).len(), 1);
 }

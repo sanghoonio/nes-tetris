@@ -198,3 +198,61 @@ fn a_dropped_player_forfeits() {
     }
     assert!(clients[1].session.verified()[1] > 0);
 }
+
+/// The host plays a bot it seated: its session runs the bot's game beside its own and sends the
+/// bot's inputs; a watcher's replica of the bot's game checks out against the bot's checksums;
+/// the result is confirmed by the host's report alone.
+#[test]
+fn a_match_against_a_bot() {
+    let rom = rom();
+    let mut room = Room::new(41);
+    let mut host = Session::new(rom.clone(), None, "ana", false);
+    let mut watcher = Session::new(rom.clone(), None, "cy", true);
+    let (host_conn, watcher_conn) = (1, 2);
+    room.handle(Event::Joined(host_conn));
+    room.handle(Event::Joined(watcher_conn));
+    let mut rng = Xorshift(5);
+    let mut held = 0u8;
+    let mut added = false;
+    let mut readied = false;
+    let mut notes = vec![];
+    for f in 0..200_000u64 {
+        let now = f * FRAME_US / 1000;
+        // Messages go straight through (no latency): the room answers each in turn.
+        let mut to_room: Vec<(ConnId, ToRoom)> = vec![];
+        if f.is_multiple_of(8) {
+            held = [0, 0, 0x04, 0x02, 0x01, 0x80, 0x40][(rng.next() % 7) as usize];
+        }
+        host.tick(now, held);
+        watcher.tick(now, 0);
+        if host.seat() == Some(0) && !added && *host.phase() == Phase::Lobby {
+            host.add_bot("PIXEL");
+            added = true;
+        }
+        if added && !readied && host.players()[1].as_ref().is_some_and(|p| p.bot) {
+            host.set_ready(true);
+            readied = true;
+        }
+        to_room.extend(host.take_outbox().into_iter().map(|m| (host_conn, m)));
+        to_room.extend(watcher.take_outbox().into_iter().map(|m| (watcher_conn, m)));
+        for (conn, msg) in to_room {
+            for send in room.handle(Event::Message(conn, msg)) {
+                match send.to {
+                    c if c == host_conn => host.receive(now, send.msg),
+                    _ => watcher.receive(now, send.msg),
+                }
+            }
+        }
+        notes.extend(host.take_notes());
+        notes.extend(watcher.take_notes());
+        if let Phase::Over { outcome, scores, confirmed: Some(agreed) } = watcher.phase().clone() {
+            println!("against PIXEL: {outcome:?} {scores:?}, the watcher's checks {:?}", watcher.verified());
+            assert!(agreed, "the host's report agrees");
+            assert!(notes.iter().all(|n| !matches!(n, Note::Desync { .. } | Note::Error(_))), "{notes:?}");
+            assert!(watcher.verified()[1] > 0, "the bot's game, replicated, checked out");
+            assert!(scores[1] > 0, "the bot scored");
+            return;
+        }
+    }
+    panic!("no confirmed result");
+}

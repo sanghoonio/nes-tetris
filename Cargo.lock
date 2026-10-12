@@ -280,6 +280,7 @@ dependencies = [
 name = "client"
 version = "0.1.0"
 dependencies = [
+ "bots",
  "netplay",
  "ppu",
  "protocol",
@@ -1060,6 +1061,7 @@ dependencies = [
 name = "netplay"
 version = "0.1.0"
 dependencies = [
+ "bots",
  "protocol",
  "tetris-rs",
  "tungstenite",

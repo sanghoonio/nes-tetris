@@ -438,3 +438,33 @@ fn kicking() {
     }
     assert!(!app.take().contains(&VersusRequest::Kick));
 }
+
+/// ADD BOT: on LEAVE's row, right-aligned, for the host while the other seat is free; Right from
+/// LEAVE reaches it, Enter asks for a bot. Up and Down pass it by.
+#[test]
+fn adding_a_bot() {
+    let mut app = at_versus_menu();
+    app.tap("Enter", 2);
+    app.take();
+    app.view = VersusView { players: [Some(("ANA".into(), false)), None], watching: 0, ..in_room(Some(0)) };
+    app.idle(5);
+    // READY is where the cursor starts; Down to LEAVE, Right to ADD BOT.
+    app.tap("ArrowDown", 2);
+    app.tap("ArrowRight", 2);
+    app.shot("add_bot");
+    app.tap("Enter", 2);
+    assert_eq!(app.take(), vec![VersusRequest::AddBot]);
+    // Left back to LEAVE; Up goes to READY, not ADD BOT.
+    app.tap("ArrowLeft", 2);
+    app.tap("ArrowUp", 2);
+    app.tap("Enter", 2);
+    assert_eq!(app.take(), vec![VersusRequest::Ready(true)]);
+    // The bot seated: no ADD BOT; it's listed as a bot, and READY.
+    app.view = VersusView { players: [Some(("ANA".into(), false)), Some(("PIXEL (BOT)".into(), true))], watching: 0, ..in_room(Some(0)) };
+    app.idle(5);
+    app.shot("bot_seated");
+    app.tap("ArrowDown", 2);
+    app.tap("ArrowRight", 2);
+    app.tap("Enter", 20);
+    assert_eq!(app.take(), vec![VersusRequest::Leave], "no ADD BOT to the right of LEAVE now");
+}

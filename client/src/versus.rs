@@ -249,7 +249,8 @@ impl Versus {
         };
         let s = &room.session;
         let connection = if *s.phase() == Phase::Connecting { Connection::Connecting } else { Connection::InRoom };
-        let players = s.players().clone().map(|p| p.map(|p| (p.name, p.ready)));
+        // A bot's name says so, as "(YOU)" does.
+        let players = s.players().clone().map(|p| p.map(|p| (if p.bot { format!("{} (BOT)", p.name) } else { p.name }, p.ready)));
         let status = match (s.phase(), &room.note) {
             (Phase::Connecting, _) => "CONNECTING TO THE ROOM".to_string(),
             (_, Some(note)) => note.clone(),
@@ -312,6 +313,12 @@ impl Versus {
             VersusRequest::Leave => {
                 self.room = None;
                 self.lost = None;
+            }
+            VersusRequest::AddBot => {
+                let pick = (self.random() % bots::ROSTER.len() as u64) as usize;
+                if let Some(room) = self.room.as_mut() {
+                    room.session.add_bot(bots::ROSTER[pick].0);
+                }
             }
             VersusRequest::Kick => {
                 if let Some(room) = self.room.as_mut() {

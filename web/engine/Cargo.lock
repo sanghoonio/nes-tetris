@@ -16,6 +16,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "bots"
+version = "0.1.0"
+dependencies = [
+ "tetris-rs",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -47,6 +54,7 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 name = "client"
 version = "0.1.0"
 dependencies = [
+ "bots",
  "netplay",
  "protocol",
  "serde",
@@ -217,6 +225,7 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 name = "netplay"
 version = "0.1.0"
 dependencies = [
+ "bots",
  "protocol",
  "tetris-rs",
  "tungstenite",

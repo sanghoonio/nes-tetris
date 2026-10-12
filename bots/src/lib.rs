@@ -42,7 +42,7 @@ pub struct Profile {
 impl Profile {
     /// The strongest: 15 taps a second, quick, no mistakes, looking ahead.
     pub fn best() -> Profile {
-        Profile { tap_frames: Some(4), reaction: 2, noise: 0.0, look_ahead: true, weights: Weights::default() }
+        ROSTER[ROSTER.len() - 1].1
     }
 }
 
@@ -182,4 +182,20 @@ impl Bot {
         let (u, v) = (uniform(), uniform());
         (-2.0 * u.ln()).sqrt() * (std::f64::consts::TAU * v).cos()
     }
+}
+
+/// The bots, weakest to strongest: one set of weights, held back by speed, reaction, mistakes
+/// and look-ahead.
+pub const ROSTER: [(&str, Profile); 6] = [
+    ("NIBBLE", Profile { tap_frames: None, reaction: 20, noise: 0.30, look_ahead: false, weights: Weights::DEFAULT }),
+    ("BYTE", Profile { tap_frames: Some(10), reaction: 14, noise: 0.15, look_ahead: false, weights: Weights::DEFAULT }),
+    ("PIXEL", Profile { tap_frames: Some(8), reaction: 10, noise: 0.08, look_ahead: false, weights: Weights::DEFAULT }),
+    ("SPRITE", Profile { tap_frames: Some(6), reaction: 6, noise: 0.03, look_ahead: true, weights: Weights::DEFAULT }),
+    ("TURBO", Profile { tap_frames: Some(5), reaction: 4, noise: 0.01, look_ahead: true, weights: Weights::DEFAULT }),
+    ("BLITZ", Profile { tap_frames: Some(4), reaction: 2, noise: 0.0, look_ahead: true, weights: Weights::DEFAULT }),
+];
+
+/// A bot on the roster by name.
+pub fn profile(name: &str) -> Option<Profile> {
+    ROSTER.iter().find(|(n, _)| *n == name).map(|(_, p)| *p)
 }

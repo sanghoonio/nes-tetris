@@ -24,9 +24,14 @@ pub struct Weights {
 }
 
 impl Default for Weights {
-    /// El-Tetris's weights, and a modest Tetris bonus.
     fn default() -> Self {
-        Weights {
+        Weights::DEFAULT
+    }
+}
+
+impl Weights {
+    /// El-Tetris's weights, and a modest Tetris bonus.
+    pub const DEFAULT: Weights = Weights {
             landing_height: -4.500158825082766,
             lines: 3.4181268101392694,
             tetris: 8.0,
@@ -34,8 +39,7 @@ impl Default for Weights {
             column_transitions: -9.348695305445199,
             holes: -7.899265427351652,
             wells: -3.3855972247263626,
-        }
-    }
+    };
 }
 
 impl Weights {

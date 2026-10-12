@@ -42,15 +42,33 @@ pub enum ToRoom {
     Settings { settings: Settings },
     Ready { ready: bool },
     /// The buttons of this player's frames `frame..frame + buttons.len()` (NES bits, A = $80), the
-    /// score after the last of them, and whether the game has ended (topped out).
-    Inputs { frame: u32, buttons: Vec<u8>, score: u32, over: bool },
-    /// A checksum of this player's game at `frame`, for the others' replicas to compare.
-    Checksum { frame: u32, hash: u64 },
+    /// score after the last of them, and whether the game has ended (topped out). `seat`: the
+    /// host's bot's seat, for its game; otherwise none (the sender's own).
+    Inputs {
+        frame: u32,
+        buttons: Vec<u8>,
+        score: u32,
+        over: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seat: Option<Seat>,
+    },
+    /// A checksum of this player's game at `frame` (or the host's bot's, with `seat`), for the
+    /// others' replicas to compare.
+    Checksum {
+        frame: u32,
+        hash: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seat: Option<Seat>,
+    },
     /// After a result: the score of each seat's game at the frame the result names, as this
     /// client's games and replicas have it.
     Report { match_id: u32, scores: [u32; 2] },
-    /// The host removes the opponent from the room, between matches.
+    /// The host removes the opponent from the room, between matches (a bot too).
     Kick,
+    /// The host seats a bot called `name` in the free seat, between matches. Its game runs on the
+    /// host's machine, which sends its inputs (`Inputs` with its `seat`); it's always ready, and
+    /// leaves with the host.
+    AddBot { name: String },
 }
 
 /// Room to client.
@@ -98,6 +116,9 @@ pub struct Player {
     /// Who this is, for as long as they're in the room: names needn't be different.
     #[serde(default)]
     pub id: u32,
+    /// A bot, played by the host's machine.
+    #[serde(default)]
+    pub bot: bool,
 }
 
 /// What the host chooses. Matches are A-type.

@@ -8,12 +8,13 @@ description = "The app around the game, for any platform: settings, saving, and 
 [dependencies]
 tetris-rs = { path = "../tetris-rs" }
 serde = { version = "1", features = ["derive"] }
+bots = { path = "../bots", optional = true }
 netplay = { path = "../netplay", optional = true }
 protocol = { path = "../protocol", optional = true }
 
 [features]
 # VERSUS: matches through a room, over the network.
-versus = ["dep:netplay", "dep:protocol", "tetris-rs/versus"]
+versus = ["dep:bots", "dep:netplay", "dep:protocol", "tetris-rs/versus"]
 
 [dev-dependencies]
 ppu = { path = "../ppu" }

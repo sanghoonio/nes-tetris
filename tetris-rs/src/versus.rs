@@ -98,6 +98,8 @@ pub enum VersusRequest {
     ListRooms(bool),
     /// The host removes the opponent from the room.
     Kick,
+    /// The host seats a bot in the free seat.
+    AddBot,
 }
 
 /// A room's settings (as `protocol::Settings`): the host's choice, A-type.

@@ -52,6 +52,9 @@ struct Occupant {
     /// Numbered in order of arrival (`Player::id`).
     #[serde(default)]
     id: u32,
+    /// A bot, whose `conn` is the host that plays it.
+    #[serde(default)]
+    bot: bool,
     /// None once the player has left during a match (the seat is kept until it ends).
     conn: Option<ConnId>,
     name: String,
@@ -144,18 +147,32 @@ impl Room {
         out.0
     }
 
+    /// The seat `conn` plays in itself (not a bot's).
     fn seat_of(&self, conn: ConnId) -> Option<Seat> {
-        (0..2).find(|&s| self.seats[s].as_ref().is_some_and(|o| o.conn == Some(conn))).map(|s| s as Seat)
+        (0..2).find(|&s| self.seats[s].as_ref().is_some_and(|o| !o.bot && o.conn == Some(conn))).map(|s| s as Seat)
+    }
+
+    /// The seats of bots `conn` plays.
+    fn bots_of(&self, conn: ConnId) -> Vec<usize> {
+        (0..2).filter(|&s| self.seats[s].as_ref().is_some_and(|o| o.bot && o.conn == Some(conn))).collect()
+    }
+
+    /// The seat a game message from `conn` is for: `seat` if it's one of its bots', else its own.
+    fn playing_seat(&self, conn: ConnId, seat: Option<Seat>) -> Option<Seat> {
+        match seat {
+            Some(s) => self.bots_of(conn).contains(&(s as usize)).then_some(s),
+            None => self.seat_of(conn),
+        }
     }
 
     /// Everyone who said `Hello` and is still here.
     fn conns(&self) -> Vec<ConnId> {
-        self.seats.iter().flatten().filter_map(|o| o.conn).chain(self.spectators.iter().copied()).collect()
+        self.seats.iter().flatten().filter(|o| !o.bot).filter_map(|o| o.conn).chain(self.spectators.iter().copied()).collect()
     }
 
     fn lobby(&self) -> FromRoom {
         FromRoom::Lobby {
-            players: self.seats.clone().map(|o| o.map(|o| Player { name: o.name, ready: o.ready, id: o.id })),
+            players: self.seats.clone().map(|o| o.map(|o| Player { name: o.name, ready: o.ready, id: o.id, bot: o.bot })),
             spectators: self.spectators.len() as u32,
             settings: self.settings,
             playing: self.game.is_some(),
@@ -184,7 +201,7 @@ impl Room {
                 }
                 // A change to the match has to be agreed to again (listing the room isn't one).
                 if (Settings { public: settings.public, ..self.settings }) != settings {
-                    for o in self.seats.iter_mut().flatten() {
+                    for o in self.seats.iter_mut().flatten().filter(|o| !o.bot) {
                         o.ready = false;
                     }
                 }
@@ -198,11 +215,30 @@ impl Room {
                 if self.game.is_some() {
                     return out.error(conn, "a match is on");
                 }
+                if self.seats[1].as_ref().is_some_and(|o| o.bot) {
+                    self.seats[1] = None;
+                    return out.all(self.conns(), self.lobby());
+                }
                 let Some(kicked) = self.seats[1].as_ref().and_then(|o| o.conn) else {
                     return out.error(conn, "nobody to remove");
                 };
                 out.to(kicked, FromRoom::Kicked);
                 self.left(kicked, out);
+            }
+            ToRoom::AddBot { name } => {
+                if seat != Some(0) {
+                    return out.error(conn, "only the host adds a bot");
+                }
+                if self.game.is_some() {
+                    return out.error(conn, "a match is on");
+                }
+                let Some(s) = (0..2).find(|&s| self.seats[s].is_none()) else {
+                    return out.error(conn, "no seat free");
+                };
+                self.next_player = self.next_player.max(1);
+                self.seats[s] = Some(Occupant { id: self.next_player, bot: true, conn: Some(conn), name: clean_name(&name), ready: true });
+                self.next_player += 1;
+                out.all(self.conns(), self.lobby());
             }
             ToRoom::Ready { ready } => {
                 let Some(seat) = seat else { return out.error(conn, "spectators don't ready up") };
@@ -216,8 +252,8 @@ impl Room {
                     out.all(self.conns(), self.lobby());
                 }
             }
-            ToRoom::Inputs { frame, buttons, score, over } => {
-                let Some(seat) = seat else { return out.error(conn, "spectators don't play") };
+            ToRoom::Inputs { frame, buttons, score, over, seat: for_seat } => {
+                let Some(seat) = self.playing_seat(conn, for_seat) else { return out.error(conn, "not a seat you play") };
                 // Batches still on their way when a match was decided are of no use now.
                 let Some(game) = self.game.as_mut() else { return };
                 let play = &mut game.plays[seat as usize];
@@ -233,8 +269,8 @@ impl Room {
                     self.finish(outcome, out);
                 }
             }
-            ToRoom::Checksum { frame, hash } => {
-                let Some(seat) = seat else { return out.error(conn, "spectators don't play") };
+            ToRoom::Checksum { frame, hash, seat: for_seat } => {
+                let Some(seat) = self.playing_seat(conn, for_seat) else { return out.error(conn, "not a seat you play") };
                 if self.game.is_none() {
                     return;
                 }
@@ -262,7 +298,7 @@ impl Room {
         let seat = match free {
             Some(s) if !watch && self.game.is_none() => {
                 self.next_player = self.next_player.max(1);
-                self.seats[s] = Some(Occupant { id: self.next_player, conn: Some(conn), name: clean_name(name), ready: false });
+                self.seats[s] = Some(Occupant { id: self.next_player, bot: false, conn: Some(conn), name: clean_name(name), ready: false });
                 self.next_player += 1;
                 Some(s as Seat)
             }
@@ -308,6 +344,17 @@ impl Room {
     fn left(&mut self, conn: ConnId, out: &mut Out) {
         self.pending.retain(|&c| c != conn);
         self.spectators.retain(|&c| c != conn);
+        // Bots go with the host who plays them: between matches at once, during one as a player
+        // who left (their board stops).
+        for s in self.bots_of(conn) {
+            match self.game.as_mut() {
+                None => self.seats[s] = None,
+                Some(game) => {
+                    self.seats[s].as_mut().unwrap().conn = None;
+                    game.plays[s].gone = true;
+                }
+            }
+        }
         let Some(seat) = self.seat_of(conn) else {
             out.all(self.conns(), self.lobby());
             return;
@@ -353,14 +400,15 @@ impl Room {
         let scores = game.plays.clone().map(|p| p.score);
         let frames = game.plays.clone().map(|p| p.inputs.len() as u32);
         out.all(self.conns(), FromRoom::Result { match_id: game.id, outcome, scores, frames });
-        let players = [0, 1].map(|s: usize| self.seats[s].as_ref().and_then(|o| o.conn));
+        // Reports are expected from the players (a bot's host reports once, for its own seat).
+        let players = [0, 1].map(|s: usize| self.seats[s].as_ref().filter(|o| !o.bot).and_then(|o| o.conn));
         self.awaiting = Some(Awaiting { match_id: game.id, scores, reports: [None, None], players });
         // Players who left lose their seats now; everyone readies up again for a rematch.
         for seat in &mut self.seats {
             if seat.as_ref().is_some_and(|o| o.conn.is_none()) {
                 *seat = None;
             }
-            if let Some(o) = seat {
+            if let Some(o) = seat.as_mut().filter(|o| !o.bot) {
                 o.ready = false;
             }
         }

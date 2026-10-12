@@ -6,6 +6,7 @@ publish = false
 description = "The client side of an online match: your game, replicas of the others, and the messages, with no UI or networking"
 
 [dependencies]
+bots = { path = "../bots" }
 protocol = { path = "../protocol" }
 tetris-rs = { path = "../tetris-rs" }
 
