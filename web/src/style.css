@@ -146,9 +146,9 @@ body,
   transition: opacity 0.4s;
 }
 
+/* The mouse still a while: MENU stays, fainter. */
 .corner.hidden {
-  opacity: 0;
-  pointer-events: none;
+  opacity: 0.4;
 }
 
 /* The game's menu: one item per line, BACK apart at the bottom, as in the game's panels. */

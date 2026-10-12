@@ -116,8 +116,8 @@ function RomPage({ onRom, links }: { onRom: (rom: Uint8Array) => void; links: Re
   );
 }
 
-/// MENU in the corner over the game: there while the mouse moves, gone after it's been still a
-/// couple of seconds (the game is played with keys).
+/// MENU in the corner over the game: as the other links while the mouse moves, fainter after it's
+/// been still a couple of seconds (the game is played with keys).
 function MenuButton({ onClick }: { onClick: () => void }) {
   const [shown, setShown] = useState(true);
   useEffect(() => {
