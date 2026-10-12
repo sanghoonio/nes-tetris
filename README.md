@@ -160,7 +160,7 @@ Against the computer, Escape pauses as normal.
 
 Matches run on the clock. If your game stops (you switch tabs, your computer stalls), it catches
 up when it's back, with the pieces in the meantime falling unsteered. If your moves stop getting
-through, your game carries on, and the other player sees WAITING over it. If
+through, your game carries on, and the other player sees NO SIGNAL over it. If
 your moves are 10 seconds behind, you lose the match and drop back to the lobby.
 
 ### Playing the computer

@@ -644,8 +644,8 @@ impl Versus {
                     draw_text(&rom, &mut pixels, width, middle - 4 * line.len(), oy + 84 + 12 * k, line, WHITE);
                 }
             } else if waiting[seat] {
-                // One whose inputs have stopped coming: WAITING where WIN or LOSE goes.
-                let text = "WAITING";
+                // One whose inputs have stopped coming: NO SIGNAL where WIN or LOSE goes.
+                let text = "NO SIGNAL";
                 draw_text(&rom, &mut pixels, width, middle - 4 * text.len(), oy + 56, text, WHITE);
             }
         }
