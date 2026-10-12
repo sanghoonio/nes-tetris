@@ -29,6 +29,17 @@ pub const BATCH_FRAMES: usize = 15;
 pub const CHECKSUM_FRAMES: u32 = 60;
 /// The countdown before a match starts.
 pub const COUNTDOWN_MS: u64 = 3_000;
+/// The NES's frames a second. Matches run on the clock: a game's frame `n` is due `n / FRAME_RATE`
+/// seconds after the countdown ends, and a game that falls behind (a hidden tab) catches up.
+pub const FRAME_RATE: f64 = 60.0988;
+/// How far behind the clock a player's game may fall, as the room hears it, before forfeiting;
+/// and how long a client goes without its batches acknowledged before giving up the connection.
+pub const GRACE_MS: u64 = 10_000;
+
+/// The frames due by `now` in a match whose countdown ended at `start` (ms, one clock).
+pub fn frames_due(start: u64, now: u64) -> u64 {
+    (now.saturating_sub(start) as f64 * FRAME_RATE / 1000.0) as u64
+}
 /// Longest name, in characters the game's font can show (`A`-`Z`, `0`-`9`, space, `-`, `.`).
 pub const NAME_LEN: usize = 8;
 
@@ -92,6 +103,9 @@ pub enum FromRoom {
     Start { match_id: u32, settings: Settings, seeds: [u32; 2], countdown_ms: u64 },
     /// A player's buttons, passed on (see `ToRoom::Inputs`).
     Inputs { seat: Seat, frame: u32, buttons: Vec<u8>, score: u32, over: bool },
+    /// To the sender of `Inputs`: the room has `frames` of `seat`'s game. Their silence is how a
+    /// client finds its connection has stalled.
+    Received { seat: Seat, frames: u32 },
     Checksum { seat: Seat, frame: u32, hash: u64 },
     /// A player's connection dropped during a match. Before topping out that's a forfeit (a
     /// `Result` follows); after, their board stops where it is and the match goes on.
@@ -120,7 +134,7 @@ pub enum FromRoom {
 pub enum Outcome {
     Win { seat: Seat },
     Draw,
-    /// `seat` left during the match before topping out.
+    /// `seat` left during the match before topping out, resigned, or fell `GRACE_MS` behind.
     Forfeit { seat: Seat },
 }
 

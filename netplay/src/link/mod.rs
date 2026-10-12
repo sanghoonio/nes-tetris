@@ -37,12 +37,12 @@ const ME: protocol::ConnId = 1;
 impl LocalRoom {
     pub fn new(seed: u64) -> LocalRoom {
         let mut room = protocol::Room::new(seed);
-        room.handle(protocol::Event::Joined(ME));
+        room.handle(0, protocol::Event::Joined(ME));
         LocalRoom { room, inbox: Default::default() }
     }
 
     pub fn send(&mut self, msg: protocol::ToRoom) {
-        for send in self.room.handle(protocol::Event::Message(ME, msg)) {
+        for send in self.room.handle(0, protocol::Event::Message(ME, msg)) {
             if send.to == ME {
                 self.inbox.push_back(send.msg);
             }

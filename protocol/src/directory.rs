@@ -14,8 +14,9 @@ use crate::RoomSummary;
 
 /// How long an entry lasts without a report.
 pub const ENTRY_TTL_MS: u64 = 10 * 60 * 1000;
-/// How often a room with people in it reports, changed or not.
-pub const REFRESH_MS: u64 = 5 * 60 * 1000;
+/// How often a room with people in it reports, changed or not (the Worker's rooms also close
+/// silent connections then, `limits::SILENCE_MS`).
+pub const REFRESH_MS: u64 = 60 * 1000;
 
 /// What a room tells the directory.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -13,12 +13,12 @@ fn to(out: &[Send], conn: ConnId) -> Vec<FromRoom> {
 }
 
 fn hello(room: &mut Room, conn: ConnId, name: &str, watch: bool) -> Vec<Send> {
-    room.handle(Event::Joined(conn));
-    room.handle(Event::Message(conn, ToRoom::Hello { name: name.into(), watch }))
+    room.handle(0, Event::Joined(conn));
+    room.handle(0, Event::Message(conn, ToRoom::Hello { name: name.into(), watch }))
 }
 
 fn msg(room: &mut Room, conn: ConnId, m: ToRoom) -> Vec<Send> {
-    room.handle(Event::Message(conn, m))
+    room.handle(0, Event::Message(conn, m))
 }
 
 fn inputs(room: &mut Room, conn: ConnId, frame: u32, n: usize, score: u32, over: bool) -> Vec<Send> {
@@ -76,7 +76,7 @@ fn spectators_are_limited() {
     assert_eq!(to(&out, 99), [FromRoom::Closed { reason: limits::FULL.into() }]);
     assert!(to(&out, HOST).is_empty());
     // One leaves: room again.
-    room.handle(Event::Left(100));
+    room.handle(0, Event::Left(100));
     assert_eq!(to(&hello(&mut room, 98, "eve", true), 98)[0], FromRoom::Welcome { seat: None });
 }
 
@@ -84,10 +84,10 @@ fn spectators_are_limited() {
 fn connections_that_never_say_hello_make_way() {
     let mut room = Room::new(1);
     for c in 0..MAX_PENDING as ConnId {
-        assert!(room.handle(Event::Joined(10 + c)).is_empty());
+        assert!(room.handle(0, Event::Joined(10 + c)).is_empty());
     }
     // The next closes the oldest, which can no longer say Hello.
-    let out = room.handle(Event::Joined(20));
+    let out = room.handle(0, Event::Joined(20));
     assert_eq!(to(&out, 10), [FromRoom::Closed { reason: limits::NO_HELLO.into() }]);
     let out = msg(&mut room, 10, ToRoom::Hello { name: "ana".into(), watch: false });
     assert!(matches!(to(&out, 10)[0], FromRoom::Error { .. }));
@@ -129,7 +129,8 @@ fn seeds_follow_the_piece_setting() {
 fn inputs_are_passed_on_in_order() {
     let (mut room, _) = playing(Pieces::Separate);
     let out = inputs(&mut room, HOST, 0, 15, 40, false);
-    assert!(to(&out, HOST).is_empty());
+    // The sender only hears that the room has them.
+    assert_eq!(to(&out, HOST), vec![FromRoom::Received { seat: 0, frames: 15 }]);
     for c in [OPP, WATCHER] {
         assert_eq!(to(&out, c), vec![FromRoom::Inputs { seat: 0, frame: 0, buttons: vec![0; 15], score: 40, over: false }]);
     }
@@ -176,7 +177,7 @@ fn the_winner_stops_playing_on() {
         let (mut room, _) = playing(Pieces::Separate);
         inputs(&mut room, HOST, 0, 15, 100, true);
         inputs(&mut room, OPP, 0, 15, 200, false);
-        let out = room.handle(stop);
+        let out = room.handle(0, stop);
         assert_eq!(result(&out, WATCHER).expect("over").0, Outcome::Win { seat: 1 });
     }
 }
@@ -198,7 +199,7 @@ fn both_topped_out() {
 fn leaving_mid_match_forfeits() {
     let (mut room, _) = playing(Pieces::Separate);
     inputs(&mut room, OPP, 0, 15, 5000, false);
-    let out = room.handle(Event::Left(OPP));
+    let out = room.handle(0, Event::Left(OPP));
     assert_eq!(to(&out, HOST)[0], FromRoom::Gone { seat: 1 });
     assert_eq!(result(&out, HOST).unwrap().0, Outcome::Forfeit { seat: 1 });
     // The seat is free again, and only the host reports.
@@ -212,7 +213,7 @@ fn leaving_mid_match_forfeits() {
 fn leaving_after_topping_out_isnt_a_forfeit() {
     let (mut room, _) = playing(Pieces::Separate);
     inputs(&mut room, OPP, 0, 15, 5000, true);
-    let out = room.handle(Event::Left(OPP));
+    let out = room.handle(0, Event::Left(OPP));
     assert_eq!(result(&out, HOST), None, "the match goes on");
     let out = inputs(&mut room, HOST, 0, 15, 5100, true);
     assert_eq!(result(&out, HOST).unwrap().0, Outcome::Win { seat: 0 });
@@ -223,8 +224,8 @@ fn leaving_after_topping_out_isnt_a_forfeit() {
 fn both_leaving_abandons() {
     let (mut room, _) = playing(Pieces::Separate);
     inputs(&mut room, HOST, 0, 15, 100, true);
-    room.handle(Event::Left(HOST));
-    let out = room.handle(Event::Left(OPP));
+    room.handle(0, Event::Left(HOST));
+    let out = room.handle(0, Event::Left(OPP));
     assert_eq!(to(&out, WATCHER)[0], FromRoom::Abandoned { match_id: 1 });
     assert!(!room.playing());
 }
@@ -279,7 +280,7 @@ fn host_leaving_the_lobby_hands_over() {
     let mut room = Room::new(1);
     hello(&mut room, HOST, "ana", false);
     hello(&mut room, OPP, "bo", false);
-    let out = room.handle(Event::Left(HOST));
+    let out = room.handle(0, Event::Left(HOST));
     assert_eq!(to(&out, OPP)[0], FromRoom::Welcome { seat: Some(0) });
     let out = msg(&mut room, OPP, ToRoom::Settings { settings: Settings::default() });
     assert!(matches!(to(&out, OPP)[0], FromRoom::Lobby { .. }));
@@ -288,7 +289,7 @@ fn host_leaving_the_lobby_hands_over() {
 #[test]
 fn hello_first_and_once() {
     let mut room = Room::new(1);
-    room.handle(Event::Joined(HOST));
+    room.handle(0, Event::Joined(HOST));
     let out = msg(&mut room, HOST, ToRoom::Ready { ready: true });
     assert!(matches!(to(&out, HOST)[0], FromRoom::Error { .. }));
     hello(&mut room, OPP, "bo", false);
@@ -339,7 +340,7 @@ fn the_host_removes_the_opponent_between_matches() {
     });
     assert!(lobby.unwrap()[1].is_none(), "the seat is free");
     // The kicked connection's close changes nothing more.
-    room.handle(Event::Left(OPP));
+    room.handle(0, Event::Left(OPP));
     assert!(to(&msg(&mut room, HOST, ToRoom::Kick), HOST).iter().any(|m| matches!(m, FromRoom::Error { .. })), "nobody to remove");
 }
 
@@ -393,7 +394,7 @@ fn a_bot_plays_for_the_host() {
     assert!(to(&msg(&mut room, OPP, bot_inputs(false)), OPP).iter().any(|m| matches!(m, FromRoom::Error { .. })));
     let out = msg(&mut room, HOST, bot_inputs(true));
     assert!(to(&out, WATCHER).contains(&FromRoom::Inputs { seat: 1, frame: 0, buttons: vec![0; 15], score: 100, over: true }));
-    assert!(to(&out, HOST).is_empty(), "not back to the host");
+    assert_eq!(to(&out, HOST), vec![FromRoom::Received { seat: 1, frames: 15 }], "not back to the host");
     // The host passes the bot's 100, and tops out after playing on: the host wins.
     let out = inputs(&mut room, HOST, 0, 15, 200, false);
     assert_eq!(result(&out, WATCHER), None, "playing on");
@@ -419,7 +420,7 @@ fn a_bot_leaves_with_its_host() {
     hello(&mut room, HOST, "ana", false);
     hello(&mut room, WATCHER, "cy", true);
     msg(&mut room, HOST, ToRoom::AddBot { name: "byte".into() });
-    let out = room.handle(Event::Left(HOST));
+    let out = room.handle(0, Event::Left(HOST));
     assert_eq!(lobby_players(&out, WATCHER), [None, None]);
 
     let mut room = Room::new(3);
@@ -428,7 +429,7 @@ fn a_bot_leaves_with_its_host() {
     msg(&mut room, HOST, ToRoom::AddBot { name: "byte".into() });
     msg(&mut room, HOST, ToRoom::Ready { ready: true });
     assert!(room.playing());
-    let out = room.handle(Event::Left(HOST));
+    let out = room.handle(0, Event::Left(HOST));
     assert!(to(&out, WATCHER).iter().any(|m| matches!(m, FromRoom::Abandoned { .. })));
     assert!(!room.playing());
 }
@@ -491,4 +492,68 @@ fn pausing_a_bot_match() {
     let out = msg(&mut room, HOST, ToRoom::Pause { paused: true });
     assert_eq!(to(&out, WATCHER), vec![FromRoom::Paused { paused: true }]);
     assert!(to(&out, HOST).is_empty());
+}
+
+/// Frames `frame..frame + n` from `conn`, at `t` ms, in batches the room takes.
+fn inputs_at(room: &mut Room, t: u64, conn: ConnId, frame: u32, n: usize, score: u32, over: bool) -> Vec<Send> {
+    let mut out = vec![];
+    for at in (0..n).step_by(60) {
+        let last = at + 60 >= n;
+        let buttons = vec![0; (n - at).min(60)];
+        let m = ToRoom::Inputs { frame: frame + at as u32, buttons, score, over: over && last, seat: None };
+        out.extend(room.handle(t, Event::Message(conn, m)));
+    }
+    out
+}
+
+// `playing` starts the match at 0 ms, so its clock starts at 3000 (the countdown's end).
+
+#[test]
+fn a_player_behind_the_clock_forfeits() {
+    let (mut room, _) = playing(Pieces::Identical);
+    // 9 s in, the opponent has sent nothing: still within the grace period.
+    let t = 3000 + 9000;
+    assert_eq!(result(&inputs_at(&mut room, t, HOST, 0, 540, 10, false), HOST), None);
+    assert_eq!(result(&room.handle(t, Event::Tick), HOST), None);
+    // 12 s in (721 frames due), the opponent is more than 10 s behind.
+    let t = 3000 + 12_000;
+    let out = inputs_at(&mut room, t, HOST, 540, 180, 20, false);
+    let (outcome, _, _) = result(&out, OPP).expect("a result");
+    assert_eq!(outcome, Outcome::Forfeit { seat: 1 });
+    assert!(!room.playing());
+    // The result doesn't wait on the opponent's report.
+    let out = msg(&mut room, HOST, ToRoom::Report { match_id: 1, scores: [20, 0] });
+    assert!(to(&out, HOST).contains(&FromRoom::Confirmed { match_id: 1, agreed: true }));
+}
+
+#[test]
+fn the_clock_is_checked_when_nobody_is_sending() {
+    let (mut room, _) = playing(Pieces::Identical);
+    let out = room.handle(3000 + 11_000, Event::Tick);
+    // Both behind as far: one of them goes, and the match is over.
+    assert!(matches!(result(&out, WATCHER), Some((Outcome::Forfeit { .. }, _, _))));
+}
+
+#[test]
+fn a_winner_playing_on_who_stalls_keeps_the_win() {
+    let (mut room, _) = playing(Pieces::Identical);
+    let t = 3000 + 1000;
+    inputs_at(&mut room, t, HOST, 0, 60, 100, true);
+    let out = inputs_at(&mut room, t, OPP, 0, 60, 200, false);
+    assert!(to(&out, WATCHER).iter().any(|m| matches!(m, FromRoom::Decided { .. })));
+    // The opponent passed the host's score, then went quiet.
+    let out = room.handle(3000 + 20_000, Event::Tick);
+    let (outcome, scores, _) = result(&out, WATCHER).expect("a result");
+    assert_eq!((outcome, scores), (Outcome::Win { seat: 1 }, [100, 200]));
+}
+
+#[test]
+fn a_match_against_a_bot_has_no_clock() {
+    let mut room = Room::new(7);
+    hello(&mut room, HOST, "ana", false);
+    msg(&mut room, HOST, ToRoom::AddBot { name: "pixel".into() });
+    msg(&mut room, HOST, ToRoom::Ready { ready: true });
+    assert!(room.playing());
+    room.handle(3000 + 600_000, Event::Tick);
+    assert!(room.playing(), "the host may pause");
 }

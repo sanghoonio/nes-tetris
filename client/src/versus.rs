@@ -305,6 +305,14 @@ impl Versus {
                 }
             }
         }
+        // The room hasn't acknowledged our inputs for the grace period: it will have forfeited us,
+        // and there's no coming back.
+        if room.session.unacknowledged_ms(now) >= protocol::GRACE_MS {
+            eprintln!("versus: no acknowledgement for {} ms", room.session.unacknowledged_ms(now));
+            self.lost = Some("LOST THE CONNECTION".into());
+            self.room = None;
+            return;
+        }
         // A new host (the first left) sends their settings too.
         if room.session.seat() != Some(0) {
             room.sent_settings = false;
@@ -573,6 +581,7 @@ impl Versus {
                 room.result_until = Some(now.min(until));
             }
         }
+        let waiting = room.session.waiting(now);
         // Ours (or the host's, watching) on the left.
         let left = room.session.match_seat().unwrap_or(0) as usize;
         let width = MATCH_WIDTH;
@@ -633,6 +642,10 @@ impl Versus {
                 for (k, line) in [names[seat].as_str(), "LEFT"].into_iter().enumerate() {
                     draw_text(&rom, &mut pixels, width, middle - 4 * line.len(), oy + 84 + 12 * k, line, WHITE);
                 }
+            } else if waiting[seat] {
+                // One whose inputs have stopped coming: WAITING where WIN or LOSE goes.
+                let text = "WAITING";
+                draw_text(&rom, &mut pixels, width, middle - 4 * text.len(), oy + 56, text, WHITE);
             }
         }
         // Above, each player's box, centred in their half: their name, and the matches they've

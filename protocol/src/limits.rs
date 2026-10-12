@@ -2,6 +2,10 @@
 //! these), watch the list, how long a message may be, and how many a connection may send. The
 //! Worker applies them all; `local-room` all but the message rate, since tests play faster than
 //! real time.
+//!
+//! A connection that ends without closing (a laptop asleep, a network gone) is found by its
+//! silence: a room link sends `PING` every `PING_MS`, answered `PONG` (by the Worker without
+//! waking the room), and the Worker closes one that hasn't pinged for `SILENCE_MS`.
 
 /// Spectators a room takes.
 pub const MAX_SPECTATORS: usize = 16;
@@ -17,11 +21,19 @@ pub const MAX_MESSAGE_BYTES: usize = 4096;
 pub const BURST: f64 = 60.0;
 pub const PER_SECOND: f64 = 30.0;
 
+/// The heartbeat: bare text, not messages. Hidden browser tabs run timers about once a minute,
+/// hence the margin.
+pub const PING: &str = "ping";
+pub const PONG: &str = "pong";
+pub const PING_MS: u64 = 30_000;
+pub const SILENCE_MS: u64 = 3 * 60_000;
+
 /// The reasons in `FromRoom::Closed`.
 pub const FULL: &str = "room is full";
 pub const NO_HELLO: &str = "no hello";
 pub const TOO_LONG: &str = "message too long";
 pub const TOO_MANY: &str = "too many messages";
+pub const NO_PING: &str = "no ping";
 
 /// A connection's allowance of messages: `BURST`, refilled at `PER_SECOND`.
 #[derive(Clone, Copy, Debug)]

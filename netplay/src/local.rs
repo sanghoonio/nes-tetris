@@ -1,6 +1,7 @@
 //! A room server on this machine: the same `protocol::Room` as the Cloudflare Worker, over plain
 //! websockets, one room per code, a thread per connection, and the list of public rooms
 //! (`protocol::Directory`) at `/rooms`. For trying matches without Cloudflare, and for tests.
+//! Pings are answered, but silence isn't timed: a connection gone here is seen closing at once.
 
 use std::collections::HashMap;
 use std::net::{TcpListener, TcpStream};
@@ -35,7 +36,7 @@ impl Rooms {
     fn run(&self, code: &str, event: Event) {
         let mut rooms = self.rooms.lock().unwrap();
         let hosted = rooms.get_mut(code).expect("a room");
-        for send in hosted.room.handle(event) {
+        for send in hosted.room.handle(self.now(), event) {
             if let Some(tx) = hosted.conns.get(&send.to) {
                 let _ = tx.send(send.msg);
             }
@@ -115,6 +116,10 @@ fn connection(rooms: Rooms, conn: ConnId, stream: TcpStream) {
             break;
         }
         match ws.read() {
+            Ok(Message::Text(text)) if text.as_str() == limits::PING => {
+                let _ = ws.send(Message::text(limits::PONG));
+                idle = false;
+            }
             Ok(Message::Text(text)) => {
                 // No limit on how many: tests play faster than real time.
                 if text.len() > MAX_MESSAGE_BYTES {

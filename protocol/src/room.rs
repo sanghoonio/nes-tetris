@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::limits::{self, MAX_PENDING, MAX_SPECTATORS};
 use crate::{
-    clean_name, ConnId, FromRoom, Outcome, Pieces, Player, RoomState, RoomSummary, Seat, Settings, ToRoom,
-    BATCH_FRAMES,
+    clean_name, frames_due, ConnId, FromRoom, Outcome, Pieces, Player, RoomState, RoomSummary, Seat, Settings, ToRoom,
+    BATCH_FRAMES, COUNTDOWN_MS, FRAME_RATE, GRACE_MS,
 };
 
 /// Longest input batch the room accepts, in frames.
@@ -18,6 +18,8 @@ pub enum Event {
     Joined(ConnId),
     Left(ConnId),
     Message(ConnId, ToRoom),
+    /// Nothing happened, but time passed: for checking the match's clock when nobody's sending.
+    Tick,
 }
 
 /// A message for one connection.
@@ -46,6 +48,9 @@ pub struct Room {
     game: Option<Match>,
     /// The last result, until the players' reports are in.
     awaiting: Option<Awaiting>,
+    /// The time of the event being handled (ms, the runner's clock).
+    #[serde(skip)]
+    now: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -69,6 +74,8 @@ struct Match {
     plays: [Play; 2],
     /// Decided while the winner plays on.
     decided: Option<Outcome>,
+    /// When the countdown ends (ms): the match's clock.
+    start: u64,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -104,6 +111,7 @@ impl Room {
             next_player: 1,
             game: None,
             awaiting: None,
+            now: 0,
         }
     }
 
@@ -140,7 +148,9 @@ impl Room {
         self.conns().is_empty() && self.pending.is_empty()
     }
 
-    pub fn handle(&mut self, event: Event) -> Vec<Send> {
+    /// Handle `event`, happening at `now` (ms, any clock that keeps going, the same every call).
+    pub fn handle(&mut self, now: u64, event: Event) -> Vec<Send> {
+        self.now = now;
         let mut out = Out(vec![]);
         match event {
             Event::Joined(conn) => {
@@ -153,8 +163,44 @@ impl Room {
             }
             Event::Left(conn) => self.left(conn, &mut out),
             Event::Message(conn, msg) => self.message(conn, msg, &mut out),
+            Event::Tick => {}
         }
+        self.check_clock(&mut out);
         out.0
+    }
+
+    /// A player whose game the room has heard `GRACE_MS` less of than the clock says (a hidden
+    /// tab, a connection gone quiet) is out: a forfeit, or if the match is decided already, the
+    /// end of their playing on. The further behind goes first. Not against a bot: both games are
+    /// on the host's machine, which may pause them.
+    fn check_clock(&mut self, out: &mut Out) {
+        let Some(game) = &self.game else { return };
+        if self.seats.iter().flatten().any(|o| o.bot) {
+            return;
+        }
+        let allowed = (GRACE_MS as f64 * FRAME_RATE / 1000.0) as u64;
+        let due = frames_due(game.start, self.now);
+        let Some(s) = (0..2)
+            .filter(|&s| !game.plays[s].over && !game.plays[s].gone && game.plays[s].inputs.len() as u64 + allowed < due)
+            .min_by_key(|&s| game.plays[s].inputs.len())
+        else {
+            return;
+        };
+        let conn = self.seats[s].as_ref().and_then(|o| o.conn);
+        match game.decided {
+            Some(_) => {
+                self.game.as_mut().unwrap().plays[s].over = true;
+                self.settle(out);
+            }
+            None => self.finish(Outcome::Forfeit { seat: s as Seat }, out),
+        }
+        // The result doesn't wait on a report from them.
+        if let Some(a) = self.awaiting.as_mut() {
+            for p in a.players.iter_mut().filter(|p| p.is_some() && **p == conn) {
+                *p = None;
+            }
+            self.confirm_if_reported(out);
+        }
     }
 
     /// The seat `conn` plays in itself (not a bot's).
@@ -288,6 +334,7 @@ impl Room {
                 play.inputs.extend_from_slice(&buttons);
                 play.score = score;
                 play.over = over;
+                out.to(conn, FromRoom::Received { seat, frames: play.inputs.len() as u32 });
                 let others: Vec<ConnId> = self.conns().into_iter().filter(|&c| c != conn).collect();
                 out.all(others, FromRoom::Inputs { seat, frame, buttons, score, over });
                 self.settle(out);
@@ -360,9 +407,9 @@ impl Room {
         };
         let id = self.next_match;
         self.next_match += 1;
-        self.game = Some(Match { id, seeds, plays: Default::default(), decided: None });
+        self.game = Some(Match { id, seeds, plays: Default::default(), decided: None, start: self.now + COUNTDOWN_MS });
         self.awaiting = None;
-        let start = FromRoom::Start { match_id: id, settings: self.settings, seeds, countdown_ms: crate::COUNTDOWN_MS };
+        let start = FromRoom::Start { match_id: id, settings: self.settings, seeds, countdown_ms: COUNTDOWN_MS };
         out.all(self.conns(), start);
         out.all(self.conns(), self.lobby());
     }

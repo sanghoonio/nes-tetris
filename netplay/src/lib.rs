@@ -6,6 +6,12 @@
 //! the room in a batch. The other seats' games are replicas, rebuilt from their batches as they
 //! arrive and played back steadily a fixed delay behind, so they move smoothly. Every 60 frames
 //! each game's checksum is sent, and each replica checks itself against it.
+//!
+//! A match runs on the clock (`protocol::frames_due`): a game that falls behind it (a hidden tab,
+//! a slow machine) plays the frames it owes with no buttons, so being away costs time. The room
+//! acknowledges each batch; going `GRACE_MS` without that, the connection is lost (the room
+//! forfeits a player that far behind). Matches against the host's own bot are on
+//! no clock: both games are here, and they pause.
 
 pub mod link;
 #[cfg(not(target_arch = "wasm32"))]
@@ -16,7 +22,7 @@ pub use link::{Link, LinkEvent, Listing, LocalRoom, RoomList};
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
-use protocol::{FromRoom, Outcome, Player, Seat, Settings, ToRoom, BATCH_FRAMES, CHECKSUM_FRAMES};
+use protocol::{frames_due, FromRoom, Outcome, Player, Seat, Settings, ToRoom, BATCH_FRAMES, CHECKSUM_FRAMES};
 use tetris_rs::options::{LeftRight, Rules};
 use tetris_rs::vars::is_sound_engine;
 use tetris_rs::{FrameOut, GameSetup, Pieces, Rom, Runner, Seed, Vars};
@@ -27,6 +33,16 @@ pub type Picture = Box<[u8; WIDTH * HEIGHT]>;
 
 /// How far a replica plays behind the newest frame it has: 350 ms, a batch plus the network.
 pub const REPLICA_DELAY: usize = 21;
+/// A player whose inputs haven't come for this long is waited for.
+pub const WAITING_MS: u64 = 2_000;
+/// Frames the player's game may trail the clock before catching up (a loop a little slower than
+/// the NES's 60.0988 frames a second catches up a frame at a time).
+const SLACK: u64 = 3;
+/// Most frames owed played in one tick, so a long absence doesn't hang the program.
+const CATCH_UP: u64 = 120;
+/// A gap between ticks this long means the program wasn't running (asleep, a hidden tab): waiting
+/// on the room starts again rather than counting it.
+const RESUMED_MS: u64 = 1_000;
 
 /// Where the session is.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -95,6 +111,14 @@ pub struct Session {
     match_ids: [Option<u32>; 2],
     /// The music the player's own game plays (0..=2, 3 off); replicas play none that's heard.
     music: u8,
+    /// When the countdown ends: the match's clock.
+    clock: u64,
+    /// The player's own frames the room has acknowledged, and since when a batch has waited for
+    /// that (none while nothing is outstanding).
+    acked: u32,
+    waiting_since: Option<u64>,
+    /// The last tick's time.
+    last_tick: u64,
     outbox: Vec<ToRoom>,
     notes: Vec<Note>,
 }
@@ -117,6 +141,8 @@ struct Own {
 
 struct Replica {
     runner: Runner,
+    /// When its inputs last came (or the countdown ended, before any).
+    heard: u64,
     /// Every frame's buttons received so far.
     inputs: Vec<u8>,
     /// Whether the game has ended (no more inputs to come).
@@ -158,6 +184,10 @@ impl Session {
             match_names: [None, None],
             match_ids: [None, None],
             music: 0,
+            clock: 0,
+            acked: 0,
+            waiting_since: None,
+            last_tick: 0,
             outbox: vec![ToRoom::Hello { name: name.to_string(), watch }],
             notes: vec![],
         }
@@ -237,6 +267,27 @@ impl Session {
     /// Seats whose player left during this match (their board stops where it is).
     pub fn gone(&self) -> [bool; 2] {
         self.gone
+    }
+
+    /// Frames the player's own game has played this match, if it has one.
+    pub fn frames_played(&self) -> Option<u32> {
+        self.own.as_ref().map(|o| o.frames)
+    }
+
+    /// How long a batch of the player's has waited for the room to acknowledge it (0 if none is
+    /// waiting): `protocol::GRACE_MS` is a lost connection.
+    pub fn unacknowledged_ms(&self, now: u64) -> u64 {
+        self.waiting_since.map_or(0, |t| now.saturating_sub(t))
+    }
+
+    /// Seats whose inputs haven't come for `WAITING_MS` while their game should be on.
+    pub fn waiting(&self, now: u64) -> [bool; 2] {
+        [0, 1].map(|s| {
+            self.phase == Phase::Playing
+                && !self.paused
+                && !self.gone[s]
+                && self.replicas[s].as_ref().is_some_and(|r| !r.over && now > r.heard + WAITING_MS)
+        })
     }
 
     pub fn take_outbox(&mut self) -> Vec<ToRoom> {
@@ -321,18 +372,30 @@ impl Session {
                     .then(|| (0..2).find(|&s| self.players[s].as_ref().is_some_and(|p| p.bot)))
                     .flatten()
                     .map(|s| s as Seat);
+                self.clock = now + countdown_ms;
+                self.acked = 0;
+                self.waiting_since = None;
+                let clock = self.clock;
                 self.replicas = [0, 1].map(|s| {
                     (self.match_seat != Some(s as Seat) && self.bot_seat != Some(s as Seat))
-                        .then(|| Replica::new(Runner::start_game(self.rom.clone(), None, self.setup(s))))
+                        .then(|| Replica::new(Runner::start_game(self.rom.clone(), None, self.setup(s)), clock))
                 });
-                self.phase = Phase::Countdown { at: now + countdown_ms };
+                self.phase = Phase::Countdown { at: self.clock };
             }
             FromRoom::Inputs { seat, frame, buttons, over, .. } => {
                 if let Some(r) = self.replicas[seat as usize].as_mut() {
                     if frame as usize == r.inputs.len() {
                         r.inputs.extend_from_slice(&buttons);
                         r.over = over;
+                        r.heard = now;
                     }
+                }
+            }
+            FromRoom::Received { seat, frames } => {
+                if Some(seat) == self.match_seat {
+                    self.acked = self.acked.max(frames);
+                    let sent = self.own.as_ref().map_or(0, Own::sent);
+                    self.waiting_since = (self.acked < sent).then_some(now);
                 }
             }
             FromRoom::Checksum { seat, frame, hash } => {
@@ -403,9 +466,21 @@ impl Session {
                 }
             }
         }
+        let resumed = self.last_tick != 0 && now > self.last_tick + RESUMED_MS;
+        self.last_tick = now;
         let mut samples = vec![];
         if self.phase == Phase::Playing && !(self.paused && self.bot_seat.is_some()) {
             if let Some(own) = self.own.as_mut() {
+                // Behind the clock: the frames owed first, with no buttons and not heard.
+                if self.bot_seat.is_none() && !own.over {
+                    let owed = frames_due(self.clock, now).saturating_sub(own.frames as u64 + 1);
+                    for _ in 0..owed.saturating_sub(SLACK).min(CATCH_UP) {
+                        own.step(0, &mut self.outbox);
+                        if own.over {
+                            break;
+                        }
+                    }
+                }
                 samples = own.step(buttons, &mut self.outbox);
             }
             if let Some((game, bot)) = self.bot.as_mut() {
@@ -430,6 +505,15 @@ impl Session {
                 }
             }
         }
+        // Waiting on the room to acknowledge a batch: since the first unacknowledged one went, or
+        // since running again.
+        let sent = self.own.as_ref().map_or(0, Own::sent);
+        self.waiting_since = match self.waiting_since {
+            _ if self.phase != Phase::Playing || sent <= self.acked => None,
+            Some(_) if resumed => Some(now),
+            Some(t) => Some(t),
+            None => Some(now),
+        };
         self.report_if_ready();
         let boards = [0, 1].map(|s| match self.played_here(s) {
             Some(own) => own.and_then(|o| o.last.clone()),
@@ -494,6 +578,11 @@ impl Session {
 }
 
 impl Own {
+    /// Frames sent to the room.
+    fn sent(&self) -> u32 {
+        self.frames - self.batch.len() as u32
+    }
+
     fn new(runner: Runner, seat: Option<Seat>, rules: Rules) -> Own {
         Own { runner, seat, rules, ram: Box::new([0; 0x800]), scores: vec![0], batch: vec![], frames: 0, over: false, last: None }
     }
@@ -524,9 +613,10 @@ impl Own {
 }
 
 impl Replica {
-    fn new(runner: Runner) -> Self {
+    fn new(runner: Runner, clock: u64) -> Self {
         Replica {
             runner,
+            heard: clock,
             inputs: vec![],
             over: false,
             played: 0,

@@ -8,7 +8,10 @@
 //!
 //! Websockets are accepted with the hibernation API, so a room nobody is sending to can be put to
 //! sleep without dropping its connections, and isn't billed for the time. Each connection's id
-//! rides along as the socket's attachment. The room is saved to storage whenever no match is on
+//! and when it connected ride along as the socket's attachment. Clients' pings
+//! (`protocol::limits::PING`) are answered by the runtime without waking the room; on each
+//! refresh the room closes the connections that have gone `SILENCE_MS` without one (or since
+//! connecting), which is how one that ended without closing (a laptop asleep) is found. The room is saved to storage whenever no match is on
 //! and reloaded on waking; a match's input log stays in memory (messages every 250 ms keep the
 //! room awake), so a room restarted mid-match loses that match. A room nobody is in deletes its
 //! storage.
@@ -26,9 +29,10 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use protocol::directory::{Report, REFRESH_MS};
-use protocol::limits::{self, Budget, MAX_MESSAGE_BYTES, MAX_WATCHERS};
+use protocol::limits::{self, Budget, MAX_MESSAGE_BYTES, MAX_WATCHERS, PING, PONG, SILENCE_MS};
 use protocol::{room_code, valid_code, ConnId, Directory, Event, FromDirectory, FromRoom, Room, ToRoom};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use worker::wasm_bindgen::{JsCast, JsValue};
 use worker::*;
 
 #[event(start)]
@@ -79,6 +83,23 @@ fn now() -> u64 {
     Date::now().as_millis()
 }
 
+/// What a room's socket carries.
+#[derive(Serialize, Deserialize)]
+struct Attachment {
+    conn: ConnId,
+    /// When it connected, in ms.
+    since: u64,
+}
+
+/// When `ws` last pinged, in ms (the runtime's `getWebSocketAutoResponseTimestamp`, which
+/// workers-rs doesn't wrap); none if it hasn't.
+fn pinged(state: &State, ws: &WebSocket) -> Option<u64> {
+    let raw: &JsValue = state.as_raw().as_ref();
+    let get = js_sys::Reflect::get(raw, &"getWebSocketAutoResponseTimestamp".into()).ok()?;
+    let at = get.dyn_into::<js_sys::Function>().ok()?.call1(raw, ws.as_ref()).ok()?;
+    at.dyn_into::<js_sys::Date>().ok().map(|d| d.get_time() as u64)
+}
+
 #[durable_object]
 pub struct RoomObject {
     state: State,
@@ -105,14 +126,14 @@ impl RoomObject {
         let (sends, save) = {
             let mut room = self.room.borrow_mut();
             let room = room.as_mut().unwrap();
-            let sends = room.handle(event);
+            let sends = room.handle(now(), event);
             (sends, (!room.playing()).then(|| room.clone()))
         };
         let sockets: Vec<(ConnId, WebSocket)> = self
             .state
             .get_websockets()
             .into_iter()
-            .filter_map(|ws| ws.deserialize_attachment::<ConnId>().ok().flatten().map(|c| (c, ws)))
+            .filter_map(|ws| Self::conn(&ws).map(|c| (c, ws)))
             .collect();
         let code = self.code.borrow().clone().unwrap_or_default();
         for send in &sends {
@@ -200,12 +221,30 @@ impl RoomObject {
     }
 
     fn conn(ws: &WebSocket) -> Option<ConnId> {
-        ws.deserialize_attachment::<ConnId>().ok().flatten()
+        ws.deserialize_attachment::<Attachment>().ok().flatten().map(|a| a.conn)
+    }
+
+    /// Close the connections silent for `SILENCE_MS`: they leave as if they'd closed.
+    async fn sweep(&self) -> Result<()> {
+        let now = now();
+        for ws in self.state.get_websockets() {
+            let Some(a) = ws.deserialize_attachment::<Attachment>().ok().flatten() else { continue };
+            let heard = pinged(&self.state, &ws).unwrap_or(0).max(a.since);
+            if now.saturating_sub(heard) > SILENCE_MS {
+                console_warn!("room {}: closed a connection: {}", self.code.borrow().clone().unwrap_or_default(), limits::NO_PING);
+                let _ = ws.close(Some(1001), Some(limits::NO_PING));
+                self.gone(&ws).await?;
+            }
+        }
+        Ok(())
     }
 }
 
 impl DurableObject for RoomObject {
     fn new(state: State, env: Env) -> Self {
+        if let Ok(pair) = worker_sys::WebSocketRequestResponsePair::new(PING, PONG) {
+            state.set_websocket_auto_response(&pair);
+        }
         RoomObject {
             state,
             env,
@@ -228,16 +267,22 @@ impl DurableObject for RoomObject {
         let pair = WebSocketPair::new()?;
         let conn = (random() * 9e15) as ConnId;
         self.state.accept_web_socket(&pair.server);
-        pair.server.serialize_attachment(conn)?;
+        pair.server.serialize_attachment(Attachment { conn, since: now() })?;
         self.run(Event::Joined(conn)).await?;
         Ok(ResponseBuilder::new().with_status(101).with_websocket(pair.client).empty())
     }
 
-    /// The refresh: tell the directory again (the room is loaded first, if it slept).
+    /// The refresh: close silent connections, check a match's clock, then tell the directory
+    /// again (the room is loaded first, if it slept).
     async fn alarm(&self) -> Result<Response> {
         if self.room.borrow().is_none() {
             let saved: Option<Room> = self.state.storage().get("room").await?;
             *self.room.borrow_mut() = saved;
+        }
+        self.sweep().await?;
+        // A match's clock, in case nobody's sending (each message checks it too).
+        if self.room.borrow().as_ref().is_some_and(Room::playing) {
+            self.run(Event::Tick).await?;
         }
         self.report(true).await?;
         Response::ok("")

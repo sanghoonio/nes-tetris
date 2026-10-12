@@ -37,6 +37,12 @@ struct Client {
     held: u8,
     readied: bool,
     notes: Vec<Note>,
+    /// The longest a batch of this client's waited for the room to acknowledge it.
+    max_unacked: u64,
+    /// Whether this client was ever waiting for each seat's inputs.
+    waited: [bool; 2],
+    /// Frames its own game had played, 10 frames after the opponent's trouble ended.
+    frames_after: Option<u32>,
 }
 
 impl Client {
@@ -55,15 +61,34 @@ enum To {
     Client(ConnId, FromRoom),
 }
 
-/// Host, opponent and a watcher from the start; another watcher joins `late_join` frames into the
-/// match, and the opponent's connection drops `drop_opp` frames in if given.
-/// Runs until every client has the confirmed result. Returns the clients still connected.
 fn play(settings: Settings, seed: u64, late_join: u64, drop_opp: Option<u64>) -> Vec<Client> {
+    play_with(settings, seed, Trouble { late_join, drop_opp, ..Trouble::default() })
+}
+
+/// What goes wrong in a match, in frames from its start.
+#[derive(Clone, Copy, Default)]
+struct Trouble {
+    /// Another watcher joins.
+    late_join: u64,
+    /// The opponent's connection drops.
+    drop_opp: Option<u64>,
+    /// The opponent's program stops running (a hidden tab) from the first, for the second.
+    hide_opp: Option<(u64, u64)>,
+    /// Nothing gets to or from the opponent from the first, for the second, then it all arrives
+    /// (a network that stalls and comes back).
+    cut_opp: Option<(u64, u64)>,
+}
+
+/// Host, opponent and a watcher from the start, with `trouble`. The room runs on the same clock as
+/// the clients. Runs until every client has the confirmed result. Returns the clients still
+/// connected.
+fn play_with(settings: Settings, seed: u64, trouble: Trouble) -> Vec<Client> {
+    let Trouble { late_join, drop_opp, hide_opp, cut_opp } = trouble;
     let rom = rom();
     let mut room = Room::new(seed);
     let mut clients: Vec<Client> = vec![];
     let add = |clients: &mut Vec<Client>, room: &mut Room, conn, name: &str, watch, latency| {
-        room.handle(Event::Joined(conn));
+        room.handle(0, Event::Joined(conn));
         let mut session = Session::new(rom.clone(), None, name, watch);
         // Each player their own music (the replicas play music 1): the checksums leave it out.
         session.set_music(conn as u8 % 4);
@@ -75,6 +100,9 @@ fn play(settings: Settings, seed: u64, late_join: u64, drop_opp: Option<u64>) ->
             held: 0,
             readied: false,
             notes: vec![],
+            max_unacked: 0,
+            waited: [false; 2],
+            frames_after: None,
         });
     };
     add(&mut clients, &mut room, 1, "host", false, 30);
@@ -95,17 +123,25 @@ fn play(settings: Settings, seed: u64, late_join: u64, drop_opp: Option<u64>) ->
         if let (Some(s), Some(d)) = (started, drop_opp) {
             if f == s + d {
                 clients.retain(|c| c.conn != 2);
-                from_room.extend(room.handle(Event::Left(2)));
+                from_room.extend(room.handle(now, Event::Left(2)));
             }
         }
-        // Deliver what's due.
-        let (due, later): (Vec<_>, Vec<_>) = queue.into_iter().partition(|(at, _)| *at <= now);
+        let since = |w: Option<(u64, u64)>| match (started, w) {
+            (Some(s), Some((from, len))) => Some((s + from, s + from + len)),
+            _ => None,
+        };
+        let cut = since(cut_opp).is_some_and(|(a, b)| (a..b).contains(&f));
+        let hidden = since(hide_opp).is_some_and(|(a, b)| (a..b).contains(&f));
+        let trouble_over = since(hide_opp).or(since(cut_opp)).map(|(_, b)| b + 10);
+        // Deliver what's due (nothing to or from the opponent while cut off).
+        let held = |to: &To| cut && matches!(to, To::Room(2, _) | To::Client(2, _));
+        let (due, later): (Vec<_>, Vec<_>) = queue.into_iter().partition(|(at, to)| *at <= now && !held(to));
         queue = later;
         for (_, to) in due {
             match to {
                 // A dropped connection's messages in flight are lost.
                 To::Room(conn, _) if drop_opp.is_some() && conn == 2 && !clients.iter().any(|c| c.conn == 2) => {}
-                To::Room(conn, msg) => from_room.extend(room.handle(Event::Message(conn, msg))),
+                To::Room(conn, msg) => from_room.extend(room.handle(now, Event::Message(conn, msg))),
                 To::Client(conn, msg) => {
                     if let Some(c) = clients.iter_mut().find(|c| c.conn == conn) {
                         c.session.receive(now, msg);
@@ -113,6 +149,7 @@ fn play(settings: Settings, seed: u64, late_join: u64, drop_opp: Option<u64>) ->
                 }
             }
         }
+        from_room.extend(room.handle(now, Event::Tick));
         for send in from_room {
             if let Some(c) = clients.iter().find(|c| c.conn == send.to) {
                 queue.push((now + c.latency, To::Client(send.to, send.msg)));
@@ -131,10 +168,19 @@ fn play(settings: Settings, seed: u64, late_join: u64, drop_opp: Option<u64>) ->
                 c.readied = true;
             }
             let b = c.buttons(f);
+            if hidden && c.conn == 2 {
+                continue;
+            }
             c.session.tick(now, b);
             c.notes.extend(c.session.take_notes());
             for msg in c.session.take_outbox() {
                 queue.push((now + c.latency, To::Room(c.conn, msg)));
+            }
+            c.max_unacked = c.max_unacked.max(c.session.unacknowledged_ms(now));
+            let waiting = c.session.waiting(now);
+            c.waited = [0, 1].map(|s| c.waited[s] || waiting[s]);
+            if trouble_over == Some(f) {
+                c.frames_after = c.session.frames_played();
             }
         }
         let expected = if drop_opp.is_some() { 3 } else { 4 };
@@ -209,8 +255,8 @@ fn a_match_against_a_bot() {
     let mut host = Session::new(rom.clone(), None, "ana", false);
     let mut watcher = Session::new(rom.clone(), None, "cy", true);
     let (host_conn, watcher_conn) = (1, 2);
-    room.handle(Event::Joined(host_conn));
-    room.handle(Event::Joined(watcher_conn));
+    room.handle(0, Event::Joined(host_conn));
+    room.handle(0, Event::Joined(watcher_conn));
     let mut rng = Xorshift(5);
     let mut held = 0u8;
     let mut added = false;
@@ -236,7 +282,7 @@ fn a_match_against_a_bot() {
         to_room.extend(host.take_outbox().into_iter().map(|m| (host_conn, m)));
         to_room.extend(watcher.take_outbox().into_iter().map(|m| (watcher_conn, m)));
         for (conn, msg) in to_room {
-            for send in room.handle(Event::Message(conn, msg)) {
+            for send in room.handle(0, Event::Message(conn, msg)) {
                 match send.to {
                     c if c == host_conn => host.receive(now, send.msg),
                     _ => watcher.receive(now, send.msg),
@@ -255,4 +301,59 @@ fn a_match_against_a_bot() {
         }
     }
     panic!("no confirmed result");
+}
+
+fn forfeited(clients: &[Client], seat: u8) {
+    for c in clients {
+        let Phase::Over { outcome, confirmed, .. } = c.session.phase().clone() else { panic!("client {}", c.conn) };
+        assert_eq!(outcome, Outcome::Forfeit { seat }, "client {}", c.conn);
+        assert_eq!(confirmed, Some(true), "client {}", c.conn);
+    }
+}
+
+/// The opponent's tab is hidden for 5 s: their game stops, then plays the frames it owes with no
+/// buttons and is back on the clock. The host waited for them meanwhile; nobody forfeits, and
+/// every replica checks out.
+#[test]
+fn a_hidden_tab_catches_up_with_the_clock() {
+    let settings = Settings { level: 0, ..Settings::default() };
+    let clients = play_with(settings, 31, Trouble { late_join: 300, hide_opp: Some((600, 300)), ..Trouble::default() });
+    check(&clients);
+    let [host, opp] = [0, 1].map(|i| clients[i].frames_after.expect("playing"));
+    println!("10 frames after: host {host}, opponent {opp}");
+    assert!(host.abs_diff(opp) <= 8, "back on the clock: host {host}, opponent {opp}");
+    assert!(clients[0].waited[1], "the host waited for the opponent");
+}
+
+/// Hidden for 15 s: the room forfeits the opponent once they're 10 s behind, and the result
+/// doesn't wait on their report.
+#[test]
+fn a_tab_hidden_too_long_forfeits() {
+    let settings = Settings { level: 0, ..Settings::default() };
+    let clients = play_with(settings, 37, Trouble { late_join: 300, hide_opp: Some((300, 900)), ..Trouble::default() });
+    forfeited(&clients, 1);
+}
+
+/// Nothing gets through to or from the opponent for 4 s, then it all does: their batches go
+/// unacknowledged for that long but not for the grace period, the host waits for them, and the
+/// match carries on with every replica in step.
+#[test]
+fn a_network_stall_within_the_grace_period_is_waited_out() {
+    let settings = Settings { level: 0, ..Settings::default() };
+    let clients = play_with(settings, 43, Trouble { late_join: 300, cut_opp: Some((600, 240)), ..Trouble::default() });
+    check(&clients);
+    let unacked = clients[1].max_unacked;
+    println!("longest unacknowledged: {unacked} ms");
+    assert!((3_000..protocol::GRACE_MS).contains(&unacked), "a stall, not a lost connection: {unacked} ms");
+    assert!(clients[0].waited[1], "the host waited for the opponent");
+}
+
+/// Cut off for 12 s: the room forfeits the opponent at 10 s behind, and their batches went
+/// unacknowledged long enough for the app to give the connection up.
+#[test]
+fn a_network_stall_past_the_grace_period_forfeits() {
+    let settings = Settings { level: 0, ..Settings::default() };
+    let clients = play_with(settings, 47, Trouble { late_join: 300, cut_opp: Some((300, 720)), ..Trouble::default() });
+    forfeited(&clients, 1);
+    assert!(clients[1].max_unacked >= protocol::GRACE_MS, "{} ms", clients[1].max_unacked);
 }

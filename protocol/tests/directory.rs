@@ -5,8 +5,8 @@ use protocol::directory::{Report, ENTRY_TTL_MS};
 use protocol::{Directory, Event, FromRoom, Room, RoomState, RoomSummary, Settings, ToRoom};
 
 fn hello(room: &mut Room, conn: u64, name: &str) {
-    room.handle(Event::Joined(conn));
-    room.handle(Event::Message(conn, ToRoom::Hello { name: name.into(), watch: false }));
+    room.handle(0, Event::Joined(conn));
+    room.handle(0, Event::Message(conn, ToRoom::Hello { name: name.into(), watch: false }));
 }
 
 fn summary(code: &str, state: RoomState) -> RoomSummary {
@@ -22,8 +22,8 @@ fn a_room_summarises_itself() {
     assert_eq!((s.host.as_str(), s.players, s.level, s.same_seed, s.state), ("ANA", 1, 0, true, RoomState::Open));
     hello(&mut room, 2, "bo");
     assert_eq!(room.summary("KQXR").unwrap().state, RoomState::Full);
-    room.handle(Event::Message(1, ToRoom::Ready { ready: true }));
-    room.handle(Event::Message(2, ToRoom::Ready { ready: true }));
+    room.handle(0, Event::Message(1, ToRoom::Ready { ready: true }));
+    room.handle(0, Event::Message(2, ToRoom::Ready { ready: true }));
     assert_eq!(room.summary("KQXR").unwrap().state, RoomState::Playing);
 }
 
@@ -32,8 +32,8 @@ fn a_private_room_isnt_listed_and_listing_doesnt_unready() {
     let mut room = Room::new(1);
     hello(&mut room, 1, "ana");
     hello(&mut room, 2, "bo");
-    room.handle(Event::Message(2, ToRoom::Ready { ready: true }));
-    let out = room.handle(Event::Message(1, ToRoom::Settings { settings: Settings { public: false, ..Settings::default() } }));
+    room.handle(0, Event::Message(2, ToRoom::Ready { ready: true }));
+    let out = room.handle(0, Event::Message(1, ToRoom::Settings { settings: Settings { public: false, ..Settings::default() } }));
     assert_eq!(room.summary("KQXR"), None);
     let lobby = out.iter().find_map(|s| match &s.msg {
         FromRoom::Lobby { players, .. } => Some(players.clone()),
@@ -41,7 +41,7 @@ fn a_private_room_isnt_listed_and_listing_doesnt_unready() {
     });
     assert!(lobby.unwrap()[1].as_ref().unwrap().ready, "still ready");
     // A change to the match does unready.
-    let out = room.handle(Event::Message(1, ToRoom::Settings { settings: Settings { level: 5, public: false, ..Settings::default() } }));
+    let out = room.handle(0, Event::Message(1, ToRoom::Settings { settings: Settings { level: 5, public: false, ..Settings::default() } }));
     let lobby = out.iter().find_map(|s| match &s.msg {
         FromRoom::Lobby { players, .. } => Some(players.clone()),
         _ => None,

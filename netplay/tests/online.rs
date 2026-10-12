@@ -107,3 +107,29 @@ fn a_match_over_websockets() {
     }
     assert!(clients[2].session.verified().iter().all(|&n| n > 0));
 }
+
+/// The heartbeat: the room server answers a ping, and a link (which pings on opening) shows only
+/// the room's messages.
+#[test]
+fn pings_are_answered_and_kept_out_of_sight() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || netplay::local::serve(listener));
+    let url = format!("ws://127.0.0.1:{port}/room/BEAT");
+
+    let (mut ws, _) = tungstenite::connect(url.as_str()).unwrap();
+    ws.send(tungstenite::Message::text(protocol::limits::PING)).unwrap();
+    assert_eq!(ws.read().unwrap(), tungstenite::Message::text(protocol::limits::PONG));
+
+    let mut link = Link::open(&url);
+    link.send(protocol::ToRoom::Hello { name: "di".into(), watch: true });
+    let start = Instant::now();
+    let first = loop {
+        assert!(start.elapsed() < Duration::from_secs(5), "nothing from the room");
+        match link.poll() {
+            Some(event) => break event,
+            None => std::thread::sleep(Duration::from_millis(5)),
+        }
+    };
+    assert_eq!(first, LinkEvent::Message(protocol::FromRoom::Welcome { seat: None }));
+}

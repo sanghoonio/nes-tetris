@@ -1,14 +1,16 @@
 //! The websockets, each on its own thread, for native clients.
 
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use protocol::limits::{PING, PING_MS, PONG};
 use protocol::ToRoom;
 
 use super::{LinkEvent, Listing};
 
 /// The websocket to a room, on its own thread. Opening doesn't wait for the connection; a
-/// failure arrives as `LinkEvent::Closed`. Dropping the link closes the connection.
+/// failure arrives as `LinkEvent::Closed`. Dropping the link closes the connection. It pings the
+/// room every `PING_MS`, from opening.
 pub struct Link {
     tx: Sender<ToRoom>,
     rx: Receiver<LinkEvent>,
@@ -35,8 +37,13 @@ impl Link {
             if let Err(e) = nonblocking {
                 return closed(e.to_string());
             }
+            let mut pinged: Option<Instant> = None;
             loop {
                 let mut idle = true;
+                if pinged.is_none_or(|t| t.elapsed() >= Duration::from_millis(PING_MS)) {
+                    let _ = ws.send(tungstenite::Message::text(PING));
+                    pinged = Some(Instant::now());
+                }
                 loop {
                     match outgoing.try_recv() {
                         Ok(msg) => {
@@ -54,6 +61,7 @@ impl Link {
                 }
                 let _ = ws.flush();
                 match ws.read() {
+                    Ok(tungstenite::Message::Text(text)) if text.as_str() == PONG => {}
                     Ok(tungstenite::Message::Text(text)) => {
                         match protocol::FromRoom::from_json(&text) {
                             Some(msg) => {
