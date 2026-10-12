@@ -2,3 +2,4 @@ node_modules
 dist
 # Built from engine/ by `npm run engine`.
 src/engine
+*.tsbuildinfo
