@@ -561,7 +561,7 @@ impl Game {
                     let text = match &view.players[i] {
                         // The host asking whether to remove the opponent.
                         Some((name, _)) if i == 1 && kick.is_some() => {
-                            Self::label_value(name, if kick == Some(true) { "KICK YES" } else { "KICK NO" })
+                            Self::label_value(name, if kick == Some(true) { "KICK? YES" } else { "KICK? NO" })
                         }
                         Some((name, ready)) => {
                             let you = if view.seat == Some(i as u8) { " (YOU)" } else { "" };
@@ -672,6 +672,12 @@ impl Game {
             }
             shown = lines;
             self.ui.colon = shown[0].1.trim_start_matches(HALF).find('.').map(|i| (HEADER_ROW, INNER.0 + i as u8));
+            // The kick question's mark, drawn over the blank the font leaves (with the text).
+            let row = PLAYER_ROWS[1];
+            let question = shown.iter().find(|l| l.0 == row).and_then(|l| l.1.find('?')).map(|i| (row, INNER.0 + i as u8));
+            if question != self.ui.question {
+                self.ui.question_next = Some(question);
+            }
             // Arriving in the room (seated): the cursor starts on READY.
             let has_ready = items.contains(&LobbyItem::Ready);
             if has_ready && !had_ready {
@@ -710,6 +716,7 @@ impl Game {
             } else if back {
                 self.vars.sfx_init[1] = SFX_MENU_SCREEN;
                 self.ui.colon = None;
+                self.ui.question = None;
                 self.request(VersusRequest::Leave);
                 return;
             } else if has(MenuKey::Up) || has(MenuKey::Down) {

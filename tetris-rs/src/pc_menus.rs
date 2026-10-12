@@ -182,6 +182,10 @@ pub(crate) struct Ui {
     pub versus_requests: Vec<crate::versus::VersusRequest>,
     /// The cell (row, column) of a full stop to draw as a colon (the font has none).
     pub colon: Option<(u8, u8)>,
+    /// The cell (row, column) of a question mark (the font has none), and a change to it for
+    /// the next NMI (when the text around it is written).
+    pub question: Option<(u8, u8)>,
+    pub question_next: Option<Option<(u8, u8)>>,
     /// Panel rows drawn half a tile right (`HALF`), and changes to that for the next NMI.
     nudged: [bool; 30],
     nudge_queue: Vec<(u8, bool)>,
@@ -463,6 +467,7 @@ impl Game {
     /// cell's own colours.
     pub(crate) fn draw_overlays(&self, pixels: &mut [u8]) {
         self.draw_colon(pixels);
+        self.draw_question(pixels);
         self.draw_nudges(pixels);
         self.draw_underline(pixels);
         if self.vars.game_mode != 3 || !self.shift_held() || self.vars.current_ppu_mask & 0x08 == 0 {
@@ -513,6 +518,22 @@ impl Game {
         for r in top..=bottom {
             for x in x0..x0 + 8 {
                 pixels[(y0 + r - up) * w + x] = pixels[(y0 + r) * w + x];
+            }
+        }
+    }
+
+    /// A question mark in the cell at `Ui::question`, in the letters' white and their shape
+    /// (7 by 7, strokes 2 wide).
+    fn draw_question(&self, pixels: &mut [u8]) {
+        const GLYPH: [u8; 7] = [0b0111110, 0b1100011, 0b0000011, 0b0001110, 0b0001100, 0b0000000, 0b0001100];
+        let Some((row, col)) = self.ui.question else { return };
+        let (x0, y0) = (col as usize * 8, row as usize * 8);
+        let w = crate::frame::WIDTH;
+        for (y, bits) in GLYPH.iter().enumerate() {
+            for x in 0..7 {
+                if bits >> (6 - x) & 1 != 0 {
+                    pixels[(y0 + y) * w + x0 + x] = TEXT_WHITE;
+                }
             }
         }
     }
@@ -659,6 +680,9 @@ impl Game {
         }
         for (row, nudge) in std::mem::take(&mut self.ui.nudge_queue) {
             self.ui.nudged[row as usize] = nudge;
+        }
+        if let Some(question) = self.ui.question_next.take() {
+            self.ui.question = question;
         }
         self.render_mode_menu_screens();
     }
