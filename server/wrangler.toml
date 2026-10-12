@@ -2,18 +2,15 @@ name = "nes-tetris"
 main = "build/index.js"
 compatibility_date = "2026-10-01"
 
-# The server, then the web page it serves (`../web`, built to `../web/dist`).
-[build]
-command = "cargo install -q \"worker-build@^0.8\" && worker-build --release && cd ../web && npm install --silent && npm run build"
-
 # At nes-tetris.online (registered with Cloudflare, so the deploy makes its DNS record and
 # certificate), and still at nes-tetris.sanghoonio.workers.dev, which builds before the domain
 # connect to. Both reach the same rooms.
 workers_dev = true
+routes = [{ pattern = "nes-tetris.online", custom_domain = true }]
 
-[[routes]]
-pattern = "nes-tetris.online"
-custom_domain = true
+# The server, then the web page it serves (`../web`, built to `../web/dist`).
+[build]
+command = "cargo install -q \"worker-build@^0.8\" && worker-build --release && cd ../web && npm install --silent && npm run build"
 
 # The page and its files; requests for anything else (/new, /room/<code>, /rooms) reach the server.
 [assets]
