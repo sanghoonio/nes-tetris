@@ -160,14 +160,14 @@ enum LobbyItem {
     Ready,
     RoomSettings,
     Leave,
-    /// On LEAVE's row, right-aligned: the host seats a bot.
+    /// On LEAVE's row, in the values' column: the host seats a bot.
     AddBot,
     Setting(Setting),
     Back,
 }
 
-/// ADD BOT's column: right-aligned in the panel, leaving its last column for the arrow.
-const ADD_BOT_COL: u8 = INNER.0 + INNER.1 as u8 - 1 - "ADD BOT".len() as u8;
+/// ADD BOT's column: the values' (READY's YES / NO, the settings').
+const ADD_BOT_COL: u8 = VALUE_COL;
 
 impl LobbyItem {
     fn row(self) -> u8 {
@@ -596,15 +596,9 @@ impl Game {
                 if in_room {
                     put((ROOM_SETTINGS_ROW, Self::label_value("ROOM SETTINGS", "")));
                 }
-                // ADD BOT beside LEAVE, right-aligned, for the host while the other seat is free.
-                let leave = Self::label_value("LEAVE", "");
-                let line = if Self::can_add_bot(view) {
-                    let at = (ADD_BOT_COL - INNER.0) as usize;
-                    format!("{:<at$}ADD BOT ", leave.trim_end())
-                } else {
-                    leave
-                };
-                put((BACK_ROW, line));
+                // ADD BOT beside LEAVE, in the values' column, for the host while the other seat
+                // is free.
+                put((BACK_ROW, Self::label_value("LEAVE", if Self::can_add_bot(view) { "ADD BOT" } else { "" })));
             }
             Page::RoomSettings => {
                 put((HEADER_ROW, Self::centred("ROOM SETTINGS")));

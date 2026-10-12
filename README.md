@@ -141,7 +141,7 @@ Your game keys work as usual; there's no
 pausing, and pressing Escape twice leaves the match, which forfeits it. After the result, READY again for a rematch.
 Between matches the host can remove the other player: choose their name in the lobby, then KICK?
 YES.
-With the other seat free, the host can ADD BOT (right of LEAVE): a computer player from a roster
+With the other seat free, the host can ADD BOT (beside LEAVE): a computer player from a roster
 of five, weakest to strongest SLEVE, BOBSON, JEROMY, KEVIN and ANATOLI, playing under the
 room's settings. Its game runs on the host's computer, so it leaves when the host does; KICK?
 removes it too.
