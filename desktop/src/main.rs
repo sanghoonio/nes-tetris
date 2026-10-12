@@ -429,7 +429,7 @@ mod tests {
         assert!(!copies[1].app.versus.in_match());
         assert_eq!(copies[1].view().connection, Connection::Lost("YOU LEFT THE MATCH".into()));
         // The host's match ends at once: BO forfeits.
-        run("host sees the forfeit", &mut copies, 10, |c| c[0].view().result == "BO LEFT");
+        run("host sees the forfeit", &mut copies, 10, |c| c[0].view().result == "ANA WON BY FORFEIT");
         copies[0].idle(1);
         assert_eq!(copies[0].view().status, "WAITING FOR A PLAYER");
     }
@@ -460,7 +460,7 @@ mod tests {
         copies[0].tap("Escape", 2);
         let mut bo = copies.remove(1);
         let mut only = vec![bo];
-        run("the forfeit", &mut only, 10, |c| c[0].view().result == "ANA LEFT");
+        run("the forfeit", &mut only, 10, |c| c[0].view().result == "BO WON BY FORFEIT");
         bo = only.remove(0);
         assert_eq!(bo.view().seat, Some(0), "BO hosts now");
         assert!(bo.app.versus.in_match(), "the result is showing");

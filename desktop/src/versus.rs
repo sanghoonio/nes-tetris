@@ -162,7 +162,7 @@ impl Versus {
                 let what = match outcome {
                     Outcome::Win { seat } => format!("{} WON {} TO {}", names[*seat as usize], scores[*seat as usize], scores[1 - *seat as usize]),
                     Outcome::Draw => format!("A DRAW AT {}", scores[0]),
-                    Outcome::Forfeit { seat } => format!("{} LEFT", names[*seat as usize]),
+                    Outcome::Forfeit { seat } => format!("{} WON BY FORFEIT", names[1 - *seat as usize]),
                 };
                 let check = if *confirmed == Some(false) { ". DISPUTED" } else { "" };
                 format!("{what}{check}")

@@ -38,7 +38,7 @@ const MENU: [(MenuItem, &str, u8); 5] = [
 const STATUS_ROWS: [u8; 2] = [6, 7];
 const PLAYER_ROWS: [u8; 2] = [9, 11];
 const WATCHING_ROW: u8 = 13;
-const RESULT_ROWS: [u8; 3] = [15, 16, 17];
+const RESULT_ROWS: [u8; 3] = [14, 15, 16];
 const ROOM_SETTINGS_ROW: u8 = 19;
 const READY_ROW: u8 = 21;
 /// The ROOM SETTINGS page: the settings double-spaced from row 6, a line for those who can't
