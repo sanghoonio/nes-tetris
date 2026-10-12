@@ -313,7 +313,7 @@ mod tests {
     /// Whole pieces over two boards' worth of boxes, for a range of margins and gaps, quickly.
     #[test]
     fn lays_whole_pieces() {
-        let rom = Rom::from_extracted(crate::ROM_DATA).unwrap();
+        let rom = crate::tests::rom();
         let boxes = game_boxes(&rom);
         for (margin, gap, widen) in (2..=4).flat_map(|m| (3..=6).flat_map(move |g| [(m, g, false), (m, g, true)])) {
             {

@@ -1,24 +1,17 @@
-//! The websocket to a room, on its own thread, for native clients.
+//! The websockets, each on its own thread, for native clients.
 
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::time::Duration;
 
-use protocol::{FromRoom, ToRoom};
+use protocol::ToRoom;
 
-/// What comes in from a link.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum LinkEvent {
-    Message(FromRoom),
-    /// The connection couldn't be made, or has ended; why.
-    Closed(String),
-}
+use super::{LinkEvent, Listing};
 
-/// The websocket, on its own thread: what the room says comes in on `rx`, messages to it go out
-/// on `tx`. Opening doesn't wait for the connection; a failure arrives as `LinkEvent::Closed`.
-/// Dropping the link closes the connection.
+/// The websocket to a room, on its own thread. Opening doesn't wait for the connection; a
+/// failure arrives as `LinkEvent::Closed`. Dropping the link closes the connection.
 pub struct Link {
-    pub tx: Sender<ToRoom>,
-    pub rx: Receiver<LinkEvent>,
+    tx: Sender<ToRoom>,
+    rx: Receiver<LinkEvent>,
 }
 
 impl Link {
@@ -62,7 +55,7 @@ impl Link {
                 let _ = ws.flush();
                 match ws.read() {
                     Ok(tungstenite::Message::Text(text)) => {
-                        match FromRoom::from_json(&text) {
+                        match protocol::FromRoom::from_json(&text) {
                             Some(msg) => {
                                 let _ = incoming.send(LinkEvent::Message(msg));
                             }
@@ -82,16 +75,25 @@ impl Link {
         });
         Link { tx: to_room, rx: from_room }
     }
+
+    pub fn send(&self, msg: ToRoom) {
+        let _ = self.tx.send(msg);
+    }
+
+    /// The next thing that came in, if any.
+    pub fn poll(&mut self) -> Option<LinkEvent> {
+        self.rx.try_recv().ok()
+    }
 }
 
 /// The list of rooms, kept up to date on its own thread from a websocket to the server's
 /// `/rooms`. Opening doesn't wait; dropping it closes the connection.
 pub struct RoomList {
-    rx: Receiver<Result<Vec<protocol::RoomSummary>, String>>,
+    rx: Receiver<Listing>,
     /// Tells the thread to stop when dropped.
     _stop: Sender<()>,
     /// The latest list (none until the first arrives), or why there's none.
-    latest: Option<Result<Vec<protocol::RoomSummary>, String>>,
+    latest: Option<Listing>,
 }
 
 impl RoomList {
@@ -139,7 +141,7 @@ impl RoomList {
     }
 
     /// The latest list: none until it first arrives; an error if the connection failed or ended.
-    pub fn latest(&mut self) -> Option<&Result<Vec<protocol::RoomSummary>, String>> {
+    pub fn latest(&mut self) -> Option<&Listing> {
         while let Ok(update) = self.rx.try_recv() {
             self.latest = Some(update);
         }

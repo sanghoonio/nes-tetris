@@ -58,7 +58,7 @@ fn a_match_over_websockets() {
         let now = start.elapsed().as_millis() as u64;
         assert!(now < 120_000, "no confirmed result in time: {:?}", clients.iter().map(|c| c.session.phase().clone()).collect::<Vec<_>>());
         for c in clients.iter_mut() {
-            while let Ok(msg) = c.link.rx.try_recv() {
+            while let Some(msg) = c.link.poll() {
                 match msg {
                     LinkEvent::Message(msg) => c.session.receive(now, msg),
                     LinkEvent::Closed(why) => panic!("connection closed: {why}"),
@@ -82,7 +82,7 @@ fn a_match_over_websockets() {
             c.session.tick(now, c.held);
             c.notes.extend(c.session.take_notes());
             for msg in c.session.take_outbox() {
-                c.link.tx.send(msg).unwrap();
+                c.link.send(msg);
             }
         }
         frame += 1;

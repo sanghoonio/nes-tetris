@@ -270,6 +270,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "client"
+version = "0.1.0"
+dependencies = [
+ "netplay",
+ "ppu",
+ "protocol",
+ "serde",
+ "tetris-rs",
+ "toml",
+]
+
+[[package]]
 name = "combine"
 version = "4.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -453,11 +465,9 @@ checksum = "4583a4551df46e2792f82ceeac45e850d2e2d5debba0b91f102385cda5b11f06"
 name = "desktop"
 version = "0.1.0"
 dependencies = [
+ "client",
  "dirs",
  "frontend",
- "netplay",
- "protocol",
- "serde",
  "sha1_smol",
  "tetris-rs",
  "toml",
@@ -655,6 +665,7 @@ version = "0.1.0"
 dependencies = [
  "cpal",
  "gilrs",
+ "ppu",
  "softbuffer",
  "winit",
 ]
@@ -1045,6 +1056,8 @@ dependencies = [
  "protocol",
  "tetris-rs",
  "tungstenite",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]

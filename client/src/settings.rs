@@ -1,10 +1,8 @@
-//! `settings.toml`: keys, volume, rules, the last game's menu choices and the high score table,
-//! kept in the system's settings folder (`Settings::dir`) so they outlast the app (and rebuilds
-//! of it).
+//! What the app keeps between runs: keys, volume, rules, the last game's menu choices, the high
+//! score table and VERSUS's name, server and room settings. The desktop keeps them in
+//! `settings.toml`, the web in the browser's storage.
 //! The settings screen edits them in the game (`tetris_rs::Config`); `config` and `apply`
 //! convert.
-
-use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use tetris_rs::options::{LeftRight, Rules as GameRules};
@@ -266,46 +264,6 @@ impl Default for LastGame {
 const ROWS: usize = 3;
 
 impl Settings {
-    /// `Tetris` in the system's settings folder: `~/Library/Application Support` on macOS,
-    /// `~/.config` (or `$XDG_CONFIG_HOME`) on Linux, `%APPDATA%` on Windows.
-    pub fn dir() -> PathBuf {
-        dirs::config_dir().expect("no settings folder for this user").join("Tetris")
-    }
-
-    fn path() -> PathBuf {
-        Self::dir().join("settings.toml")
-    }
-
-    /// Read the file, or the defaults if there isn't one. A file that doesn't parse is kept
-    /// as `settings.invalid.toml` (so it isn't overwritten) and the defaults are used.
-    pub fn load() -> Self {
-        let path = Self::path();
-        let Ok(text) = std::fs::read_to_string(&path) else { return Self::default() };
-        match toml::from_str(&text) {
-            Ok(s) => s,
-            Err(e) => {
-                let keep = Self::dir().join("settings.invalid.toml");
-                eprintln!("{}: {e}\nkept as {}; using defaults", path.display(), keep.display());
-                let _ = std::fs::rename(&path, keep);
-                Self::default()
-            }
-        }
-    }
-
-    pub fn save(&self) {
-        let write = || -> std::io::Result<()> {
-            std::fs::create_dir_all(Self::dir())?;
-            let text = toml::to_string_pretty(self).map_err(std::io::Error::other)?;
-            // Write then rename, so a crash mid-write can't leave half a file.
-            let tmp = Self::dir().join("settings.toml.tmp");
-            std::fs::write(&tmp, text)?;
-            std::fs::rename(tmp, Self::path())
-        };
-        if let Err(e) = write() {
-            eprintln!("saving {}: {e}", Self::path().display());
-        }
-    }
-
     /// The settings screen's view of these settings.
     pub fn config(&self) -> Config {
         Config {
@@ -328,16 +286,6 @@ impl Settings {
         self.integer_scale = c.integer_scale;
         self.next_piece = c.next_piece;
         self.rules = Rules::from_game(&c.rules);
-    }
-
-    /// The window's view of these settings.
-    pub fn frontend(&self) -> frontend::Options {
-        frontend::Options {
-            volume: self.volume,
-            fullscreen: self.fullscreen,
-            integer_scale: self.integer_scale,
-            width: frontend::WIDTH,
-        }
     }
 
     /// What to restore at power-on.

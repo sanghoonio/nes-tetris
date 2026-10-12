@@ -7,7 +7,6 @@
 //! countdown, the result and Escape's prompt drawn over them.
 
 use std::sync::Arc;
-use std::time::Instant;
 
 use netplay::{Link, LinkEvent, Note, Phase, RoomList as ListLink, Session, HEIGHT, WIDTH};
 use protocol::{Outcome, Pieces, Settings};
@@ -98,7 +97,10 @@ const ESCAPE_MS: u64 = 2000;
 pub struct Versus {
     rom: Arc<Rom>,
     sample_rate: Option<u32>,
-    start: Instant,
+    /// Milliseconds on the app's clock, as of this frame.
+    pub now: u64,
+    /// For room codes.
+    rng: u64,
     /// The room server and the name, for this run (the saved ones unless overridden).
     pub server: String,
     pub name: String,
@@ -153,17 +155,25 @@ pub struct Frame<'a> {
 }
 
 impl Versus {
-    pub fn new(rom: Arc<Rom>, sample_rate: Option<u32>, server: String, name: String) -> Self {
+    /// `seed` seeds the room codes this makes up.
+    pub fn new(rom: Arc<Rom>, sample_rate: Option<u32>, server: String, name: String, seed: u64) -> Self {
         let boxes = backdrop::game_boxes(&rom);
         let backdrop = Backdrop::new(MATCH_COLS, HEIGHT / 8, |r, c| {
             (0..2).any(|i| (board_col(i)..board_col(i) + BOARD_COLS).contains(&c) && source_cell(r, c - board_col(i)).is_some_and(|(sr, sc)| boxes[sr][sc]))
         });
         let empty = backdrop::empty_game_screen(&rom);
-        Versus { rom, sample_rate, start: Instant::now(), server, name, music: 0, room: None, lost: None, list: None, rooms: RoomList::Closed, boxes, backdrop, empty }
+        Versus { rom, sample_rate, now: 0, rng: seed | 1, server, name, music: 0, room: None, lost: None, list: None, rooms: RoomList::Closed, boxes, backdrop, empty }
     }
 
     fn now(&self) -> u64 {
-        self.start.elapsed().as_millis() as u64
+        self.now
+    }
+
+    fn random(&mut self) -> u64 {
+        self.rng ^= self.rng << 13;
+        self.rng ^= self.rng >> 7;
+        self.rng ^= self.rng << 17;
+        self.rng
     }
 
     /// Whether a match has the window: the countdown, play, or the result being shown.
@@ -193,7 +203,7 @@ impl Versus {
             };
         }
         let Some(room) = self.room.as_mut() else { return };
-        while let Ok(event) = room.link.rx.try_recv() {
+        while let Some(event) = room.link.poll() {
             match event {
                 // Removed by the host (the connection closes next).
                 LinkEvent::Message(protocol::FromRoom::Kicked) => {
@@ -276,7 +286,7 @@ impl Versus {
     pub fn request(&mut self, r: VersusRequest, saved: &mut settings::Versus) -> bool {
         match r {
             VersusRequest::Host => {
-                let code = protocol::room_code(random());
+                let code = protocol::room_code(self.random());
                 self.join(code, false);
             }
             VersusRequest::Join(code) => self.join(code, false),
@@ -382,7 +392,7 @@ impl Versus {
             });
         }
         for msg in room.session.take_outbox() {
-            let _ = room.link.tx.send(msg);
+            room.link.send(msg);
         }
     }
 
@@ -530,10 +540,6 @@ impl Versus {
     }
 }
 
-fn random() -> u64 {
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap();
-    (t.as_nanos() as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ std::process::id() as u64
-}
 
 fn listed(r: &protocol::RoomSummary) -> ListedRoom {
     ListedRoom {

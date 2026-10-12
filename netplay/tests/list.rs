@@ -15,7 +15,7 @@ fn server() -> String {
 
 fn join(server: &str, code: &str, name: &str) -> Link {
     let link = Link::open(&format!("{server}/room/{code}"));
-    link.tx.send(ToRoom::Hello { name: name.into(), watch: false }).unwrap();
+    link.send(ToRoom::Hello { name: name.into(), watch: false });
     link
 }
 
@@ -50,13 +50,13 @@ fn the_list_follows_the_rooms() {
 
     // A private room isn't listed: DEE hosts CCCC and makes it private straight away.
     let dee = join(&server, "CCCC", "dee");
-    dee.tx.send(ToRoom::Settings { settings: Settings { public: false, ..Settings::default() } }).unwrap();
+    dee.send(ToRoom::Settings { settings: Settings { public: false, ..Settings::default() } });
     std::thread::sleep(Duration::from_millis(200));
     until(&mut list, "still two", |r| r.len() == 2 && r.iter().all(|s| s.code != "CCCC"));
 
     // AAAA's match starts.
-    ana.tx.send(ToRoom::Ready { ready: true }).unwrap();
-    bo.tx.send(ToRoom::Ready { ready: true }).unwrap();
+    ana.send(ToRoom::Ready { ready: true });
+    bo.send(ToRoom::Ready { ready: true });
     until(&mut list, "AAAA playing", |r| r.iter().any(|s| s.code == "AAAA" && s.state == RoomState::Playing));
 
     // BBBB empties.

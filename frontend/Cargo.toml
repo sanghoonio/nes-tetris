@@ -10,3 +10,4 @@ winit = "0.30"
 softbuffer = "0.4"
 cpal = "0.18"
 gilrs = "0.11"
+ppu = { path = "../ppu" }

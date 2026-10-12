@@ -1,0 +1,20 @@
+[package]
+name = "client"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The app around the game, for any platform: settings, saving, and VERSUS (rooms, the list, matches); the desktop and web shells supply the window, files and time"
+
+[dependencies]
+tetris-rs = { path = "../tetris-rs" }
+serde = { version = "1", features = ["derive"] }
+netplay = { path = "../netplay", optional = true }
+protocol = { path = "../protocol", optional = true }
+
+[features]
+# VERSUS: matches through a room, over the network.
+versus = ["dep:netplay", "dep:protocol", "tetris-rs/versus"]
+
+[dev-dependencies]
+ppu = { path = "../ppu" }
+toml = "0.9"

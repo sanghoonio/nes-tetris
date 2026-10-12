@@ -161,7 +161,7 @@ impl Online {
 impl frontend::Game for Online {
     fn frame(&mut self, input: &frontend::Input) -> (Vec<u8>, Vec<f32>) {
         let now = self.now();
-        while let Ok(msg) = self.link.rx.try_recv() {
+        while let Some(msg) = self.link.poll() {
             match msg {
                 LinkEvent::Message(msg) => {
                     if let (FromRoom::Welcome { seat: Some(0) }, Some(settings)) = (&msg, self.settings.take()) {
@@ -192,7 +192,7 @@ impl frontend::Game for Online {
             }
         }
         for msg in self.session.take_outbox() {
-            let _ = self.link.tx.send(msg);
+            self.link.send(msg);
         }
         let status = self.status();
         if status != self.shown {
