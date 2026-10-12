@@ -134,8 +134,9 @@ Both players need their own ROM.
 
 Pick VERSUS on the title screen. HOST makes a new room. JOIN shows rooms that have a free seat,
 and WATCH shows all of them, including matches in progress. If a room isn't listed, use ENTER A
-CODE with the code from the top of its lobby. OFFLINE plays against the computer without going
-online.
+CODE with the code from the top of its lobby. Left and Right move a page at a time through a
+long list, and Right from the last page goes to ENTER A CODE. OFFLINE plays against the computer
+without going online.
 
 ### In the room
 

@@ -14,6 +14,8 @@ use super::{LinkEvent, Listing};
 pub struct Link {
     tx: Sender<ToRoom>,
     rx: Receiver<LinkEvent>,
+    /// `Closed` has been given out.
+    closed: bool,
 }
 
 impl Link {
@@ -81,16 +83,24 @@ impl Link {
                 }
             }
         });
-        Link { tx: to_room, rx: from_room }
+        Link { tx: to_room, rx: from_room, closed: false }
     }
 
     pub fn send(&self, msg: ToRoom) {
         let _ = self.tx.send(msg);
     }
 
-    /// The next thing that came in, if any.
+    /// The next thing that came in, if any. A thread that stopped without saying why (a panic)
+    /// is a closed connection too.
     pub fn poll(&mut self) -> Option<LinkEvent> {
-        self.rx.try_recv().ok()
+        let event = match self.rx.try_recv() {
+            Ok(event) => event,
+            Err(TryRecvError::Empty) => return None,
+            Err(TryRecvError::Disconnected) if !self.closed => LinkEvent::Closed("the connection stopped".into()),
+            Err(TryRecvError::Disconnected) => return None,
+        };
+        self.closed |= matches!(event, LinkEvent::Closed(_));
+        Some(event)
     }
 }
 

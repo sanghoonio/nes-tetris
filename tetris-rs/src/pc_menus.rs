@@ -19,6 +19,8 @@ pub(crate) const RENDER_SETTINGS: u8 = 5;
 /// The menu arrow, flipped horizontally for the right-hand one.
 const ARROW_TILE: u8 = 0x27;
 const FLIP_H: u8 = 0x40;
+/// Values that can't be changed here (a room's settings, to all but the host): grey.
+const GREYED: u8 = 0x00;
 const BLANK_TILE: u8 = 0xFF;
 /// At the start of a line for `put_text` / `queue_text`: shift the row half a tile right once
 /// drawn. A line of odd length can't be centred on the tile grid; centred with this, it is.
@@ -202,6 +204,15 @@ pub(crate) struct Ui {
     /// The cell (row, column) of a typing cursor: an underline (the font has none), flickering
     /// as the menu arrows do.
     pub underline: Option<(u8, u8)>,
+    /// Rows whose value is shown greyed out this frame (`GREYED`): set each frame, cleared with
+    /// the sprites.
+    pub greyed: Vec<u8>,
+}
+
+impl Ui {
+    pub(crate) fn clear_greyed(&mut self) {
+        self.greyed.clear();
+    }
 }
 
 impl Item {
@@ -486,6 +497,7 @@ impl Game {
     /// finished picture in a narrow font of its own, the original digits' height, in each
     /// cell's own colours.
     pub(crate) fn draw_overlays(&self, pixels: &mut [u8]) {
+        self.draw_greyed(pixels);
         self.draw_colon(pixels);
         self.draw_question(pixels);
         self.draw_nudges(pixels);
@@ -724,6 +736,21 @@ impl Game {
         self.stage_sprite(y, ARROW_TILE, 0, x - 9);
         if right {
             self.stage_sprite(y, ARROW_TILE, FLIP_H, x + 8 * len as u8 + 1);
+        }
+    }
+
+    /// The values on `Ui::greyed`'s rows (`VALUE_COL` on), their white text in `GREYED`.
+    fn draw_greyed(&self, pixels: &mut [u8]) {
+        let w = crate::frame::WIDTH;
+        let (left, right) = (VALUE_COL as usize * 8, (VALUE_COL as usize + VALUE_WIDTH) * 8);
+        for &row in &self.ui.greyed {
+            for y in row as usize * 8..row as usize * 8 + 8 {
+                for p in &mut pixels[y * w + left..y * w + right] {
+                    if *p & 0x3F == TEXT_WHITE {
+                        *p = GREYED;
+                    }
+                }
+            }
         }
     }
 

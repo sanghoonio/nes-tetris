@@ -48,7 +48,7 @@ jobs:
       - name: Tests that don't need the ROM
         run: |
           cargo test -p protocol -p apu
-          cargo test -p netplay --test list
+          cargo test -p netplay --test list --test tls
 
       # The build command in server/wrangler.toml builds the server, then the page.
       - name: Build

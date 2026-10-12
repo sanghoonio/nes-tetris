@@ -265,6 +265,7 @@ impl Game {
     pub async fn update_audio_wait_for_nmi_and_reset_oam_staging(&mut self) -> u8 {
         self.update_audio_and_wait_for_nmi().await;
         self.memset_page(0xFF, 0x02, 0x02);
+        self.ui.clear_greyed();
         0xFF
     }
 

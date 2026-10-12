@@ -339,7 +339,8 @@ impl Versus {
         // A bot's name says so ("(CPU)"), as "(YOU)" does.
         let players = s.players().clone().map(|p| p.map(|p| (if p.bot { format!("{} (CPU)", p.name) } else { p.name }, p.ready)));
         let status = match (s.phase(), &room.note) {
-            (Phase::Connecting, _) => "CONNECTING TO THE ROOM".to_string(),
+            // The header says CONNECTING.
+            (Phase::Connecting, _) => String::new(),
             (_, Some(note)) => note.clone(),
             _ if players.iter().any(Option::is_none) => "WAITING FOR A PLAYER".to_string(),
             _ if s.seat().is_none() => "WATCHING".to_string(),

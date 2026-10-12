@@ -54,10 +54,9 @@ const WATCHING_ROW: u8 = 13;
 const SERIES_ROWS: [u8; 2] = [14, 15];
 const ROOM_SETTINGS_ROW: u8 = 19;
 const READY_ROW: u8 = 21;
-/// The ROOM SETTINGS page: the settings double-spaced from row 6, a line for those who can't
-/// change them, and BACK on `BACK_ROW`.
+/// The ROOM SETTINGS page: the settings double-spaced from row 6 (their values greyed out for
+/// those who can't change them), and BACK on `BACK_ROW`.
 const FIRST_SETTING_ROW: u8 = 6;
-const HOST_ONLY_ROW: u8 = 24;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Setting {
@@ -406,8 +405,7 @@ impl Game {
         }
         // Which are showing, when they don't all fit.
         if rooms.len() > LIST_ROWS.len() {
-            let last = (top + LIST_ROWS.len()).min(rooms.len());
-            put(SHOWING_ROW, Self::centred(&format!("ROOMS {}-{} OF {}", top + 1, last, rooms.len())));
+            put(SHOWING_ROW, Self::centred(&Self::showing(top, rooms.len())));
         }
         // A code is no use without the server.
         if view.rooms != RoomList::Unreachable {
@@ -415,6 +413,11 @@ impl Game {
         }
         put(BACK_ROW, Self::label_value("BACK", ""));
         lines
+    }
+
+    /// Which rooms are showing, from `top` of `count`.
+    fn showing(top: usize, count: usize) -> String {
+        format!("ROOMS {}-{} OF {}", top + 1, (top + LIST_ROWS.len()).min(count), count)
     }
 
     /// A room's row: host, players, level, and in WATCH its state.
@@ -476,6 +479,20 @@ impl Game {
                     moved = true;
                     index = (index + if has(MenuKey::Up) { count - 1 } else { 1 }) % count;
                     self.vars.sfx_init[1] = SFX_MENU_OPTION;
+                }
+                // A page at a time: Right on down the rooms to ENTER A CODE (the last room, without
+                // it), Left back up them; the list turns with the cursor.
+                let page = LIST_ROWS.len();
+                if has(MenuKey::Left) || has(MenuKey::Right) {
+                    let right = has(MenuKey::Right);
+                    let last = if codes { rooms.len() } else { rooms.len().saturating_sub(1) };
+                    let to = if right { (index + page).min(last.max(index)) } else { index.min(rooms.len()).saturating_sub(page) };
+                    if to != index {
+                        moved = true;
+                        index = to;
+                        top = if right { top + page } else { top.saturating_sub(page) };
+                        self.vars.sfx_init[1] = SFX_MENU_OPTION;
+                    }
                 }
                 at = match index {
                     i if i < rooms.len() => At::Room(rooms[i].code.clone()),
@@ -620,9 +637,6 @@ impl Game {
                 for s in SETTINGS {
                     put((LobbyItem::Setting(s).row(), Self::label_value(s.label(), &s.value(&view.settings))));
                 }
-                if view.seat != Some(0) {
-                    put((HOST_ONLY_ROW, Self::centred("SET BY THE HOST")));
-                }
                 put((BACK_ROW, Self::label_value("BACK", "")));
             }
         }
@@ -692,6 +706,10 @@ impl Game {
             // Out of the room: back to the main page.
             if page == Page::RoomSettings && view.connection != Connection::InRoom {
                 page = Page::Main;
+            }
+            // Only the host changes the settings.
+            if page == Page::RoomSettings && view.seat != Some(0) {
+                self.ui.greyed = SETTINGS.iter().map(|&s| LobbyItem::Setting(s).row()).collect();
             }
             let items = Self::lobby_items(&view, page);
             if !items.contains(&LobbyItem::Opponent) {

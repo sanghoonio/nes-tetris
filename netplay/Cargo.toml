@@ -13,6 +13,8 @@ tetris-rs = { path = "../tetris-rs" }
 # The websocket and the local room server, for native clients.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
+# TLS for wss://: tungstenite's rustls comes with no cryptography, and without one it panics.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
 [dev-dependencies]
 

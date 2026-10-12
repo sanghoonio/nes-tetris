@@ -335,6 +335,58 @@ mod tests {
         format!("ws://127.0.0.1:{port}")
     }
 
+    /// Screenshots of JOIN and WATCH with more rooms than fit (`target/versus/list_*.png`): 18
+    /// open rooms, two full, one playing; at the top, then turning pages with Right and Left.
+    #[test]
+    #[ignore = "makes screenshots"]
+    fn crowded_room_lists() {
+        let server = local_room();
+        let names = [
+            "ANA", "BO", "CYRILLIC", "DEE", "EVE", "FINN", "GUS", "HAL", "IVY", "JO", "KAI", "LEO", "MAX", "NED", "OZ", "PIA", "QUIN", "ROY",
+            "SUE", "TED", "UMA", "VIC", "WES", "XAN",
+        ];
+        let mut links = vec![];
+        let mut next = names.iter();
+        let mut seat = |code: &str, ready: bool| {
+            let link = netplay::Link::open(&format!("{server}/room/{code}"));
+            link.send(protocol::ToRoom::Hello { name: next.next().unwrap().to_string(), watch: false });
+            std::thread::sleep(Duration::from_millis(30));
+            if ready {
+                link.send(protocol::ToRoom::Ready { ready: true });
+            }
+            link
+        };
+        let open = ["AAAA", "BBBB", "CCCC", "DDDD", "EEEE", "FFFF", "GGGG", "HHHH", "JJJJ", "KKKK", "PPPP", "QQQQ", "RRRR", "SSSS", "TTTT", "UUUU", "VVVV", "WWWW"];
+        for (i, code) in open.iter().enumerate() {
+            let host = seat(code, false);
+            let settings = protocol::Settings { level: (i * 3 % 20) as u8, ..protocol::Settings::default() };
+            host.send(protocol::ToRoom::Settings { settings });
+            links.push(host);
+        }
+        for code in ["LLLL", "MMMM"] {
+            links.push(seat(code, false));
+            links.push(seat(code, false));
+        }
+        links.push(seat("NNNN", true));
+        links.push(seat("NNNN", true));
+        for (item, name) in [(1, "join"), (2, "watch")] {
+            let mut copy = Copy::new(&server, "ZED");
+            copy.open_versus(item);
+            run("listed", std::slice::from_mut(&mut copy), 10, |c| matches!(&c[0].view().rooms, RoomList::Rooms(r) if r.len() == 21 && r.iter().any(|r| r.state == ListedState::Playing)));
+            // Off a frame where the cursor's arrows blink out.
+            copy.idle(6);
+            copy.shot(&format!("list_{name}_top"));
+            // A page at a time: a middle page (arrows both ways), the last, ENTER A CODE; and back.
+            for (i, key) in ["ArrowRight", "ArrowRight", "ArrowRight", "ArrowLeft"].into_iter().enumerate() {
+                copy.tap(key, 3);
+                // Off a frame where the cursor's arrows blink out.
+                copy.idle(6);
+                copy.shot(&format!("list_{name}_page_{}", i + 1));
+            }
+        }
+        drop(links);
+    }
+
     #[test]
     fn host_join_watch_play_rematch() {
         let server = local_room();
@@ -367,6 +419,13 @@ mod tests {
         }
         run("level 15", &mut copies, 10, |c| c.iter().all(|c| c.view().settings.level == 15));
         copies[0].shot("room_settings");
+        // The opponent sees them too, greyed out (only the host changes them).
+        copies[1].tap("ArrowUp", 2);
+        copies[1].tap("Enter", 2);
+        copies[1].idle(3);
+        copies[1].shot("room_settings_guest");
+        copies[1].tap("Escape", 2);
+        copies[1].tap("ArrowDown", 2);
         copies[0].tap("Escape", 2);
         copies[0].tap("ArrowDown", 2);
         copies[0].tap("Enter", 2);
