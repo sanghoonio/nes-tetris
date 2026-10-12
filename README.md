@@ -119,78 +119,92 @@ NES. Your settings, your last game's choices and your high scores are saved in
 
 ## Versus
 
-An optional build adds VERSUS to the title menu: one-on-one races against another copy of the
-game, as at the Classic Tetris World Championship. Each player plays their own game; when one
-tops out, the other plays on until they pass that score or top out too. Passing it wins, and the
-winner (a bot too) can keep playing; the result is shown when they top out or quit, or against
-your own bot when you press Escape twice. Others can watch.
+Versus lets you race another player head to head, as played at CTWC. You each play your own game
+side by side. When one of you tops out, the other has to pass their score to win, or tops out
+too. The winner can keep playing to push their score up. Other people can join a room to watch.
+
+It's an optional part of the build:
 
     cargo run --release --features versus
 
-(For the Mac app: `desktop/macos/bundle.sh --versus --install`.)
+For the Mac app, use `desktop/macos/bundle.sh --versus --install`.
 
-**Playing:** HOST makes a room. JOIN lists the rooms with a seat free and WATCH lists every
-room, matches being played included; choose one, or ENTER A CODE for a room that isn't listed
-(the room code is at the top of its lobby; PUBLIC OFF under ROOM SETTINGS keeps a room off the
-lists). A room takes 16 spectators. The host sets the level, SAME SEED (both players get
-the same pieces; on unless turned off) and the rules (DAS, hard drop, ghost and so on) under ROOM
-SETTINGS in the room, where the others can look but not change them; both players
-choose READY and the match starts after a countdown. The window widens to show both games side by
-side, yours on the left, each with its playfield, score, next piece and level (the piece
-statistics aren't shown). Each score box also shows the gap to the other player, green when
-ahead and red when behind, and above each half a box shows the player's name and the matches
-they've won between you.
-Your game keys work as usual; there's no
-pausing against people, and pressing Escape twice leaves the match, which forfeits it. Against a
-computer player, Escape pauses (RESUME, or QUIT, which forfeits and leaves you in the room). After the result, READY again for a rematch.
-Between matches the host can remove the other player: choose their name in the lobby, then KICK?
-YES.
-With the other seat free, the host can ADD CPU (beside the empty seat): a computer player from a roster
-of five, weakest to strongest SLEVE, BOBSON, JEROMY, KEVIN and ANATOLI, playing under the
-room's settings. Its game runs on the host's computer, so it leaves when the host does; KICK?
-removes it too. OFFLINE on the VERSUS menu plays one with no server at all. A computer player shows as
-`KEVIN (CPU)`.
+Both players need their own ROM.
 
-Each player needs their own ROM. Only button presses and scores travel between the games.
+### Finding a match
 
-**Rooms** are run by a small server, at `wss://nes-tetris.sanghoonio.workers.dev` unless
-`server` under `[versus]` in `settings.toml` says otherwise. To play on your own network instead,
-start one on one of the computers:
+Pick VERSUS on the title screen. HOST makes a new room. JOIN shows rooms that have a free seat,
+and WATCH shows all of them, including matches in progress. If a room isn't listed, use ENTER A
+CODE with the code from the top of its lobby. OFFLINE plays against the computer without going
+online.
+
+### In the room
+
+The host sets up the match in ROOM SETTINGS: starting level, whether both players get the same
+pieces, and rules like hard drop and the ghost piece. Turning PUBLIC off hides the room from the
+lists, so only people with the code can get in.
+
+Once both players hit READY there's a countdown and the match starts. Hit READY again afterwards
+for a rematch. Between matches the host can kick the other player by selecting their name.
+
+Rooms fit two players and 16 spectators.
+
+### During a match
+
+The window widens to fit both games, with yours on the left. Above each game is the player's
+name and how many matches they've won. Next to each score is how far ahead (green) or behind
+(red) that player is.
+
+You can't pause against another person. Pressing Escape twice leaves, and counts as a loss.
+Against the computer, Escape pauses as normal.
+
+### Playing the computer
+
+If the other seat is empty, the host can pick ADD CPU. There are five computer players, from
+weakest to strongest: SLEVE, BOBSON, JEROMY, KEVIN and ANATOLI. They play on the host's
+computer, so they leave when the host does.
+
+### Playing on your own network
+
+By default the game finds rooms through a server on the internet. You can run your own on one
+computer instead:
 
     cargo run --release -p netplay --bin local-room
 
-and set `server` to `ws://localhost:8788` (or that computer's address, for example
-`ws://192.168.1.20:8788`). Two copies can run on one computer with different names:
+Then set `server` under `[versus]` in `settings.toml` to `ws://localhost:8788` on that computer,
+or to its address on the others, like `ws://192.168.1.20:8788`.
+
+To try it out on one computer, open two copies with different names:
 
     cargo run --release --features versus -- --name ANA
     cargo run --release --features versus -- --name BO
 
-`--server URL` works the same way, for a single run without saving.
+## In a browser
 
-The server in `server/` runs on Cloudflare (the free plan is enough) and serves the web version
-too (below). Pushing to `main` deploys it (`.github/workflows/ci.yml`); by hand:
+You can also play at **https://nes-tetris.sanghoonio.workers.dev**. Load your ROM the first time.
+Browser and desktop players can play each other.
+
+## For developers
+
+### The web page
+
+The page is in `web/`. You'll need [Node](https://nodejs.org) and `wasm-pack`
+(`cargo install wasm-pack`). To run it locally, start a room server and the page:
+
+    cargo run --release -p netplay --bin local-room
+    cd web && npm install && npm run dev        # then open http://localhost:5173
+
+Run the page's tests with `npm test` in `web/`.
+
+### The server
+
+The room server in `server/` runs on Cloudflare's free plan and serves the web page too. Pushing
+to `main` tests it and deploys it (`.github/workflows/ci.yml`). To deploy by hand:
 
     cd server
     npx wrangler login
     npx wrangler deploy
 
-It prints the address, `https://nes-tetris.<your-subdomain>.workers.dev`: the web version is
-there, and the desktop app reaches the rooms at the same address with `wss://` in front.
+To run the server and page locally the way Cloudflare would:
 
-## In a browser
-
-The same game, menus and VERSUS run in a web page (`web/`): the app as WebAssembly
-(`web/engine`) in a small page. Each player gives it their own ROM file once; it stays in their
-browser and is never uploaded. Web and desktop players meet in the same rooms. Building it needs
-Node and `wasm-pack` (`cargo install wasm-pack`).
-
-To try it on your computer, either the page alone, with rooms from `local-room`:
-
-    cargo run --release -p netplay --bin local-room
-    cd web && npm install && npm run dev        # then http://localhost:5173
-
-or the page and the rooms together as Cloudflare would run them:
-
-    cd server && npx wrangler dev               # then http://localhost:8787
-
-`npm test` in `web/` checks the WebAssembly build under Node, including a match between two copies.
+    cd server && npx wrangler dev               # then open http://localhost:8787
