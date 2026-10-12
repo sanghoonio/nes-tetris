@@ -110,8 +110,10 @@ test("a match between two copies, found through JOIN's list", async (t) => {
     c.tap("ArrowDown"); // VERSUS
     c.tap("Enter", 20);
   }
+  assert.equal(ana.engine.online(), false, "not in a room yet: the page may pause it");
   ana.tap("Enter", 20); // HOST
   await wait([ana], 1000);
+  assert.equal(ana.engine.online(), true, "in a room: the page mustn't pause it");
   bo.tap("ArrowDown"); // JOIN
   bo.tap("Enter", 20);
   // Once the room is listed, the cursor is on it; Enter joins.

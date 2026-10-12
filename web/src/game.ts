@@ -68,8 +68,9 @@ export class Runner {
   private pressed: string[] = [];
   private pads = new Set<string>();
   private focused = true;
-  /// Whether the game takes the keyboard.
+  /// Whether the game takes the keyboard, and whether it's paused (for something else on the page).
   private keys = true;
+  private paused = false;
   private frame = 0;
   private last = 0;
   private behind = 0;
@@ -120,6 +121,11 @@ export class Runner {
     if (!on) this.held.clear();
   }
 
+  /// Stop the game where it is, or carry on. Not in a VERSUS room: the others play on.
+  setPaused(on: boolean) {
+    this.paused = on;
+  }
+
   stop() {
     if (this.stopped) return;
     this.stopped = true;
@@ -158,6 +164,11 @@ export class Runner {
   private tick(t: number) {
     if (this.stopped) return;
     this.frame = requestAnimationFrame((t) => this.tick(t));
+    if (this.paused && !this.engine.online()) {
+      // Carry on from here afterwards, not with the time missed.
+      this.last = 0;
+      return;
+    }
     this.behind += this.last ? t - this.last : FRAME_MS;
     this.last = t;
     // Catch up at most a few frames after a stall rather than fast-forwarding.

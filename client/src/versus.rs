@@ -176,6 +176,11 @@ impl Versus {
         self.rng
     }
 
+    /// Whether connected to a room (or trying to be).
+    pub fn in_room(&self) -> bool {
+        self.room.is_some()
+    }
+
     /// Whether a match has the window: the countdown, play, or the result being shown.
     pub fn in_match(&self) -> bool {
         let Some(room) = &self.room else { return false };

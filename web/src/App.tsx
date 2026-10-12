@@ -37,7 +37,7 @@ export default function App() {
         />
       ) : (
         <>
-          <Game rom={rom} keys={panel === null} />
+          <Game rom={rom} free={panel === null} />
           {panel === null && <MenuButton onClick={() => setPanel("menu")} />}
         </>
       )}
@@ -177,9 +177,9 @@ function Info({ onClose }: { onClose: () => void }) {
 }
 
 /// The game, from power-on. Sound starts with the first key or click (browsers allow it only
-/// then). EXIT powers it on again. `keys`: whether the game takes the keyboard (not while the
-/// info panel is up).
-function Game({ rom, keys }: { rom: Uint8Array; keys: boolean }) {
+/// then). EXIT powers it on again. While a panel is up (`free` false) it takes no keys, and
+/// stops where it is unless in a VERSUS room.
+function Game({ rom, free }: { rom: Uint8Array; free: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const runner = useRef<Runner | null>(null);
   const [run, setRun] = useState(0);
@@ -199,8 +199,9 @@ function Game({ rom, keys }: { rom: Uint8Array; keys: boolean }) {
     };
   }, [rom, run]);
   useEffect(() => {
-    runner.current?.setKeys(keys);
-  }, [keys]);
+    runner.current?.setKeys(free);
+    runner.current?.setPaused(!free);
+  }, [free]);
   return (
     <div className="game">
       <canvas ref={canvas} />

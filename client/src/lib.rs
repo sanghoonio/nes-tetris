@@ -97,6 +97,14 @@ impl App {
         std::mem::take(&mut self.config_changed)
     }
 
+    /// Whether in a VERSUS room, where the game can't stop (the others play on).
+    pub fn online(&self) -> bool {
+        #[cfg(feature = "versus")]
+        return self.versus.in_room();
+        #[cfg(not(feature = "versus"))]
+        false
+    }
+
     /// EXIT was chosen.
     pub fn quit(&self) -> bool {
         self.quit

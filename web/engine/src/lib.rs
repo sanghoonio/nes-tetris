@@ -81,6 +81,11 @@ impl Engine {
         self.app.settings().integer_scale
     }
 
+    /// Whether in a VERSUS room, where the game can't stop (the others play on).
+    pub fn online(&self) -> bool {
+        self.app.online()
+    }
+
     /// EXIT was chosen.
     pub fn quit(&self) -> bool {
         self.app.quit()
