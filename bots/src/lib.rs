@@ -184,15 +184,14 @@ impl Bot {
     }
 }
 
-/// The bots, weakest to strongest: one set of weights, held back by speed, reaction, mistakes
-/// and look-ahead.
-pub const ROSTER: [(&str, Profile); 6] = [
-    ("NIBBLE", Profile { tap_frames: None, reaction: 20, noise: 0.30, look_ahead: false, weights: Weights::DEFAULT }),
-    ("BYTE", Profile { tap_frames: Some(10), reaction: 14, noise: 0.15, look_ahead: false, weights: Weights::DEFAULT }),
-    ("PIXEL", Profile { tap_frames: Some(8), reaction: 10, noise: 0.08, look_ahead: false, weights: Weights::DEFAULT }),
-    ("SPRITE", Profile { tap_frames: Some(6), reaction: 6, noise: 0.03, look_ahead: true, weights: Weights::DEFAULT }),
-    ("TURBO", Profile { tap_frames: Some(5), reaction: 4, noise: 0.01, look_ahead: true, weights: Weights::DEFAULT }),
-    ("BLITZ", Profile { tap_frames: Some(4), reaction: 2, noise: 0.0, look_ahead: true, weights: Weights::DEFAULT }),
+/// The bots, weakest to strongest (named after the made-up players of Fighting Baseball for the
+/// Super Famicom): one set of weights, held back by speed, reaction, mistakes and look-ahead.
+pub const ROSTER: [(&str, Profile); 5] = [
+    ("SLEVE", Profile { tap_frames: None, reaction: 20, noise: 0.30, look_ahead: false, weights: Weights::DEFAULT }),
+    ("BOBSON", Profile { tap_frames: Some(8), reaction: 12, noise: 0.12, look_ahead: false, weights: Weights::DEFAULT }),
+    ("JEROMY", Profile { tap_frames: Some(6), reaction: 7, noise: 0.04, look_ahead: true, weights: Weights::DEFAULT }),
+    ("KEVIN", Profile { tap_frames: Some(5), reaction: 4, noise: 0.01, look_ahead: true, weights: Weights::DEFAULT }),
+    ("ANATOLI", Profile { tap_frames: Some(4), reaction: 2, noise: 0.0, look_ahead: true, weights: Weights::DEFAULT }),
 ];
 
 /// A bot on the roster by name.

@@ -460,7 +460,7 @@ fn adding_a_bot() {
     app.tap("Enter", 2);
     assert_eq!(app.take(), vec![VersusRequest::Ready(true)]);
     // The bot seated: no ADD BOT; it's listed as a bot, and READY.
-    app.view = VersusView { players: [Some(("ANA".into(), false)), Some(("PIXEL (BOT)".into(), true))], watching: 0, ..in_room(Some(0)) };
+    app.view = VersusView { players: [Some(("ANA".into(), false)), Some(("ANATOLI (BOT)".into(), true))], watching: 0, ..in_room(Some(0)) };
     app.idle(5);
     app.shot("bot_seated");
     app.tap("ArrowDown", 2);

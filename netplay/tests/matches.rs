@@ -226,7 +226,7 @@ fn a_match_against_a_bot() {
         host.tick(now, held);
         watcher.tick(now, 0);
         if host.seat() == Some(0) && !added && *host.phase() == Phase::Lobby {
-            host.add_bot("PIXEL");
+            host.add_bot("JEROMY");
             added = true;
         }
         if added && !readied && host.players()[1].as_ref().is_some_and(|p| p.bot) {
@@ -246,7 +246,7 @@ fn a_match_against_a_bot() {
         notes.extend(host.take_notes());
         notes.extend(watcher.take_notes());
         if let Phase::Over { outcome, scores, confirmed: Some(agreed) } = watcher.phase().clone() {
-            println!("against PIXEL: {outcome:?} {scores:?}, the watcher's checks {:?}", watcher.verified());
+            println!("against JEROMY: {outcome:?} {scores:?}, the watcher's checks {:?}", watcher.verified());
             assert!(agreed, "the host's report agrees");
             assert!(notes.iter().all(|n| !matches!(n, Note::Desync { .. } | Note::Error(_))), "{notes:?}");
             assert!(watcher.verified()[1] > 0, "the bot's game, replicated, checked out");
