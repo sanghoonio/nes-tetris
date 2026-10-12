@@ -234,6 +234,14 @@ impl Room {
                 let outcome = game.decided.unwrap_or(Outcome::Forfeit { seat });
                 self.finish(outcome, out);
             }
+            ToRoom::Pause { paused } => {
+                // Only the host playing its own bot can stop the match: both games are its.
+                if self.game.is_none() || seat.is_none() || self.bots_of(conn).is_empty() {
+                    return out.error(conn, "only a match against your own bot pauses");
+                }
+                let others: Vec<ConnId> = self.conns().into_iter().filter(|&c| c != conn).collect();
+                out.all(others, FromRoom::Paused { paused });
+            }
             ToRoom::AddBot { name } => {
                 if seat != Some(0) {
                     return out.error(conn, "only the host adds a bot");

@@ -483,11 +483,11 @@ mod tests {
         host.open_versus(0);
         let mut copies = vec![host];
         run("host in room", &mut copies, 10, |c| c[0].view().connection == Connection::InRoom);
-        // Up from READY past ROOM SETTINGS to ADD BOT, beside the empty seat's dash.
+        // Up from READY past ROOM SETTINGS to ADD CPU, beside the empty seat's dash.
         copies[0].tap("ArrowUp", 2);
         copies[0].tap("ArrowUp", 2);
         copies[0].tap("Enter", 2);
-        run("a bot seated", &mut copies, 10, |c| c[0].view().players[1].as_ref().is_some_and(|p| p.0.ends_with(" (BOT)") && p.1));
+        run("a bot seated", &mut copies, 10, |c| c[0].view().players[1].as_ref().is_some_and(|p| p.0.ends_with(" (CPU)") && p.1));
         let bot = copies[0].view().players[1].clone().unwrap().0;
         // The cursor's back on READY.
         copies[0].idle(5);
@@ -504,7 +504,7 @@ mod tests {
         copies[0].shot("match_bot");
         copies[0].tap("Enter", 2);
         run("back to lobby", &mut copies, 10, |c| !c[0].app.versus.in_match());
-        let name = bot.trim_end_matches(" (BOT)");
+        let name = bot.trim_end_matches(" (CPU)");
         let series = &copies[0].view().series;
         assert!(series.len() == 1 && series[0].starts_with("ANA ") && series[0].ends_with(name), "{series:?}");
         // Another, quit with Escape twice: a forfeit, and still in the room with the bot.
@@ -517,7 +517,7 @@ mod tests {
         copies[0].tap("Enter", 2);
         run("back to lobby again", &mut copies, 10, |c| !c[0].app.versus.in_match());
         assert_eq!(copies[0].view().connection, Connection::InRoom);
-        assert!(copies[0].view().players[1].as_ref().is_some_and(|p| p.0.ends_with(" (BOT)")));
+        assert!(copies[0].view().players[1].as_ref().is_some_and(|p| p.0.ends_with(" (CPU)")));
         // KICK? YES removes it (Up past ROOM SETTINGS to its name).
         copies[0].idle(GUARD_FRAMES as usize);
         copies[0].tap("ArrowUp", 2);
@@ -526,6 +526,75 @@ mod tests {
         copies[0].tap("ArrowRight", 2);
         copies[0].tap("Enter", 2);
         run("the bot gone", &mut copies, 10, |c| c[0].view().players[1].is_none());
+    }
+
+    /// OFFLINE: no server at all (an address that goes nowhere); a bot is seated at once, and
+    /// the match is played and confirmed in the room run here.
+    #[test]
+    fn vs_bot_offline() {
+        let mut c = Copy::new("ws://127.0.0.1:1", "ANA");
+        c.idle(10);
+        c.tap("Enter", 20);
+        c.tap("ArrowDown", 3);
+        c.tap("Enter", 20);
+        for _ in 0..3 {
+            c.tap("ArrowDown", 3);
+        }
+        c.tap("Enter", 20);
+        let mut copies = vec![c];
+        run("a bot seated", &mut copies, 10, |c| c[0].view().players[1].as_ref().is_some_and(|p| p.0.ends_with(" (CPU)")));
+        assert!(copies[0].view().offline);
+        copies[0].idle(5);
+        copies[0].shot("vs_bot_lobby");
+        copies[0].tap("Enter", 2);
+        run("the match", &mut copies, 20, |c| c[0].app.versus.in_match());
+        run("decided", &mut copies, 120, |c| c[0].app.versus.confirmed() || c[0].app.versus.decided());
+        if !copies[0].app.versus.confirmed() {
+            copies[0].tap("Escape", 2);
+            copies[0].tap("Escape", 2);
+        }
+        run("confirmed", &mut copies, 20, |c| c[0].app.versus.confirmed());
+        copies[0].tap("Enter", 2);
+        run("back to the lobby", &mut copies, 10, |c| !c[0].app.versus.in_match());
+        assert_eq!(copies[0].view().series.len(), 1);
+    }
+
+    /// Offline against a CPU: Escape pauses (both games stand still, the pause screen shows);
+    /// RESUME carries on; QUIT resigns, and we're still in the lobby.
+    #[test]
+    fn pausing_against_a_cpu() {
+        let mut c = Copy::new("ws://127.0.0.1:1", "ANA");
+        c.idle(10);
+        c.tap("Enter", 20);
+        c.tap("ArrowDown", 3);
+        c.tap("Enter", 20);
+        for _ in 0..3 {
+            c.tap("ArrowDown", 3);
+        }
+        c.tap("Enter", 20);
+        let mut copies = vec![c];
+        run("a CPU seated", &mut copies, 10, |c| c[0].view().players[1].is_some());
+        copies[0].idle(5);
+        copies[0].tap("Enter", 2);
+        run("playing", &mut copies, 20, |c| c[0].app.versus.playing());
+        copies[0].idle(120);
+        copies[0].tap("Escape", 2);
+        let frozen = copies[0].app.versus.scores();
+        copies[0].idle(240);
+        assert_eq!(copies[0].app.versus.scores(), frozen, "both games stand still");
+        copies[0].shot("paused");
+        // RESUME: the games go on.
+        copies[0].tap("Enter", 2);
+        copies[0].idle(600);
+        assert!(copies[0].app.versus.playing());
+        // Pause again; Down to QUIT, Enter: resigned, the result, then the lobby.
+        copies[0].tap("Escape", 2);
+        copies[0].tap("ArrowDown", 2);
+        copies[0].tap("Enter", 2);
+        run("the result", &mut copies, 10, |c| c[0].app.versus.confirmed());
+        copies[0].tap("Enter", 2);
+        run("back to the lobby", &mut copies, 10, |c| !c[0].app.versus.in_match());
+        assert_eq!(copies[0].view().connection, Connection::InRoom);
     }
 
     #[test]

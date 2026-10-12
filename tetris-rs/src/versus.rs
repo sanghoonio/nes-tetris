@@ -33,6 +33,8 @@ pub struct VersusView {
     pub name: String,
     pub connection: Connection,
     pub code: String,
+    /// VS BOT: a room run here, with no code.
+    pub offline: bool,
     /// This player's seat (0 hosts); none when watching.
     pub seat: Option<u8>,
     /// Each seat's player: name and whether ready.
@@ -100,6 +102,8 @@ pub enum VersusRequest {
     Kick,
     /// The host seats a bot in the free seat.
     AddBot,
+    /// VS BOT: a room of our own, run here, with a bot.
+    VsBot,
 }
 
 /// A room's settings (as `protocol::Settings`): the host's choice, A-type.

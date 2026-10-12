@@ -72,6 +72,9 @@ pub enum ToRoom {
     /// The sender gives up the match: a forfeit, staying in the room (against the host's own bot,
     /// quitting a match does this rather than leaving).
     Resign,
+    /// The host, playing its own bot, has paused the match (both games are on its machine), or
+    /// carried on: for spectators to show.
+    Pause { paused: bool },
 }
 
 /// Room to client.
@@ -104,6 +107,8 @@ pub enum FromRoom {
     Abandoned { match_id: u32 },
     /// To the opponent the host removed: the connection ends after this.
     Kicked,
+    /// The match against the host's bot is paused, or carries on (`ToRoom::Pause`).
+    Paused { paused: bool },
     Error { message: String },
 }
 

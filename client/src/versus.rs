@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use netplay::{Link, LinkEvent, Note, Phase, RoomList as ListLink, Session, HEIGHT, WIDTH};
+use netplay::{Link, LinkEvent, LocalRoom, Note, Phase, RoomList as ListLink, Session, HEIGHT, WIDTH};
 use protocol::{Outcome, Pieces, Settings};
 use tetris_rs::options::LeftRight;
 use tetris_rs::pc_input::play_buttons;
@@ -139,7 +139,10 @@ pub struct Versus {
 }
 
 struct Room {
-    link: Link,
+    link: Conn,
+    /// OFFLINE: a room run here, with no server; a bot is seated once we are.
+    offline: bool,
+    bot_added: bool,
     session: Session,
     code: String,
     /// Our room settings have been sent (once seated as host).
@@ -148,12 +151,36 @@ struct Room {
     result_until: Option<u64>,
     /// Escape was pressed during the match at this time.
     escape_at: Option<u64>,
+    /// Paused, against our own bot: the pause menu's cursor (0 RESUME, 1 QUIT).
+    pause: Option<usize>,
     /// The last thing worth saying in the lobby's status line.
     note: Option<String>,
     /// The matches between the room's two players so far.
     series: Option<Series>,
     /// The current result has been counted in `series`.
     counted: bool,
+}
+
+/// The way to a room: a server's, or one run here (OFFLINE).
+enum Conn {
+    Server(Link),
+    Here(Box<LocalRoom>),
+}
+
+impl Conn {
+    fn send(&mut self, msg: protocol::ToRoom) {
+        match self {
+            Conn::Server(link) => link.send(msg),
+            Conn::Here(room) => room.send(msg),
+        }
+    }
+
+    fn poll(&mut self) -> Option<LinkEvent> {
+        match self {
+            Conn::Server(link) => link.poll(),
+            Conn::Here(room) => room.poll(),
+        }
+    }
 }
 
 /// Matches won by each of two players (by seat in their matches), since they first met here.
@@ -246,7 +273,7 @@ impl Versus {
                 LinkEvent::Closed(why) => {
                     eprintln!("versus: {why}");
                     let reached = !matches!(room.session.phase(), Phase::Connecting);
-                    self.lost = Some(if reached { "LOST THE CONNECTION" } else { "COULD NOT REACH THE SERVER" }.into());
+                    self.lost = Some(if reached { "LOST THE CONNECTION" } else { "CAN NOT REACH SERVER" }.into());
                     self.room = None;
                     return;
                 }
@@ -275,8 +302,8 @@ impl Versus {
         };
         let s = &room.session;
         let connection = if *s.phase() == Phase::Connecting { Connection::Connecting } else { Connection::InRoom };
-        // A bot's name says so, as "(YOU)" does.
-        let players = s.players().clone().map(|p| p.map(|p| (if p.bot { format!("{} (BOT)", p.name) } else { p.name }, p.ready)));
+        // A bot's name says so ("(CPU)"), as "(YOU)" does.
+        let players = s.players().clone().map(|p| p.map(|p| (if p.bot { format!("{} (CPU)", p.name) } else { p.name }, p.ready)));
         let status = match (s.phase(), &room.note) {
             (Phase::Connecting, _) => "CONNECTING TO THE ROOM".to_string(),
             (_, Some(note)) => note.clone(),
@@ -304,6 +331,7 @@ impl Versus {
             name: self.name.clone(),
             connection,
             code: room.code.clone(),
+            offline: room.offline,
             seat: s.seat(),
             players,
             watching: s.spectators(),
@@ -340,6 +368,7 @@ impl Versus {
                 self.room = None;
                 self.lost = None;
             }
+            VersusRequest::VsBot => self.play_bot(),
             VersusRequest::AddBot => {
                 let pick = (self.random() % bots::ROSTER.len() as u64) as usize;
                 if let Some(room) = self.room.as_mut() {
@@ -367,15 +396,29 @@ impl Versus {
 
     fn join(&mut self, code: String, watch: bool) {
         let url = format!("{}/room/{code}", self.server.trim_end_matches('/'));
+        self.enter(Conn::Server(Link::open(&url)), code, watch);
+    }
+
+    /// OFFLINE: a room run here, which we host, with a bot seated as soon as we are.
+    fn play_bot(&mut self) {
+        let seed = self.random();
+        self.enter(Conn::Here(Box::new(LocalRoom::new(seed))), String::new(), false);
+    }
+
+    fn enter(&mut self, link: Conn, code: String, watch: bool) {
         let session = Session::new(self.rom.clone(), self.sample_rate, &self.name, watch);
         self.lost = None;
+        let offline = matches!(link, Conn::Here(_));
         self.room = Some(Room {
-            link: Link::open(&url),
+            link,
+            offline,
+            bot_added: false,
             session,
             code,
             sent_settings: false,
             result_until: None,
             escape_at: None,
+            pause: None,
             note: None,
             series: None,
             counted: false,
@@ -416,6 +459,17 @@ impl Versus {
             Phase::Countdown { .. } | Phase::Playing => room.counted = false,
             _ => {}
         }
+        // OFFLINE: once seated, a bot (once; kicked, ADD CPU brings another).
+        if room.offline && !room.bot_added && room.session.seat() == Some(0) && *room.session.phase() == Phase::Lobby {
+            room.bot_added = true;
+            let pick = {
+                self.rng ^= self.rng << 13;
+                self.rng ^= self.rng >> 7;
+                self.rng ^= self.rng << 17;
+                (self.rng % bots::ROSTER.len() as u64) as usize
+            };
+            room.session.add_bot(bots::ROSTER[pick].0);
+        }
         if room.session.seat() == Some(0) && !room.sent_settings && *room.session.phase() == Phase::Lobby {
             room.session.set_settings(to_protocol(&saved.room.to_game()));
             room.sent_settings = true;
@@ -441,20 +495,40 @@ impl Versus {
         let rom = self.rom.clone();
         let room = self.room.as_mut().expect("a match");
         let pressed = |k: &str| f.pressed.iter().any(|p| p == k);
-        // Escape twice to quit: against our own bot, resigning (a forfeit; we stay in the room);
-        // otherwise leaving the room (a forfeit, if our game's still on).
-        if pressed("Escape") {
+        let any = |ks: &[&str]| ks.iter().any(|k| pressed(k));
+        // Against our own bot, the pause key (or Escape) pauses, with the game's pause menu:
+        // RESUME, or QUIT, which resigns (we stay in the room).
+        let own_bot = room.session.playing_bot();
+        if own_bot && *room.session.phase() == Phase::Playing {
+            let pause_key = any(&["Escape", "PadStart", f.config.keys[6].as_str()]);
+            match room.pause {
+                None if pause_key => {
+                    room.pause = Some(0);
+                    room.session.set_paused(true);
+                }
+                None => {}
+                Some(at) => {
+                    if any(&["ArrowUp", "ArrowDown", "PadUp", "PadDown"]) {
+                        room.pause = Some(1 - at);
+                    } else if any(&["Enter", "NumpadEnter", "PadSouth"]) || pause_key {
+                        room.pause = None;
+                        room.session.set_paused(false);
+                        if at == 1 && !pause_key {
+                            room.session.resign();
+                        }
+                    }
+                }
+            }
+        } else {
+            room.pause = None;
+        }
+        // Against people, Escape twice leaves the room (a forfeit, if our game's still on).
+        if !own_bot && pressed("Escape") {
             if room.escape_at.is_some_and(|t| now < t + ESCAPE_MS) {
                 room.escape_at = None;
-                if room.session.playing_bot() {
-                    if matches!(room.session.phase(), Phase::Countdown { .. } | Phase::Playing) {
-                        room.session.resign();
-                    }
-                } else {
-                    self.room = None;
-                    self.lost = Some("YOU LEFT THE MATCH".into());
-                    return (vec![BLACK; WIDTH * HEIGHT], vec![]);
-                }
+                self.room = None;
+                self.lost = Some("YOU LEFT THE MATCH".into());
+                return (vec![BLACK; WIDTH * HEIGHT], vec![]);
             } else {
                 room.escape_at = Some(now);
             }
@@ -567,6 +641,30 @@ impl Versus {
             // Decided while the winner plays on: nothing yet; WIN and LOSE come together at the end.
             _ => {}
         }
+        // Paused: both playfields blank (as the game hides its own), and the game's pause screen
+        // centred in the picture; watching, PAUSED only.
+        if room.session.paused() {
+            for i in 0..2 {
+                for y in oy + 48..oy + 208 {
+                    pixels[y * width + sx(i, 96)..y * width + sx(i, 176)].fill(BLACK);
+                }
+            }
+            let middle = width / 2;
+            draw_text(&rom, &mut pixels, width, middle - 4 * 6, oy + 104, "PAUSED", WHITE);
+            if let Some(at) = room.pause {
+                let items = ["RESUME", "QUIT"];
+                for (k, item) in items.iter().enumerate() {
+                    draw_text(&rom, &mut pixels, width, middle - 4 * item.len(), oy + 128 + 12 * k, item, WHITE);
+                }
+                // The menus' flickering arrows (gone one frame in four).
+                if !(now * 60 / 1000).is_multiple_of(4) {
+                    let (item, y) = (items[at], oy + 128 + 12 * at);
+                    let (x0, x1) = (middle - 4 * item.len(), middle + 4 * item.len());
+                    draw_arrow(&rom, &mut pixels, width, x0 - 10, y, false);
+                    draw_arrow(&rom, &mut pixels, width, x1 + 2, y, true);
+                }
+            }
+        }
         if room.escape_at.is_some_and(|t| now < t + ESCAPE_MS) {
             let text = "ESC AGAIN TO QUIT";
             draw_text(&rom, &mut pixels, width, width / 2 - 4 * text.len(), PROMPT_Y, text, WHITE);
@@ -580,6 +678,10 @@ impl Versus {
 impl Versus {
     pub fn playing(&self) -> bool {
         self.room.as_ref().is_some_and(|r| *r.session.phase() == Phase::Playing)
+    }
+
+    pub fn scores(&self) -> [Option<u32>; 2] {
+        self.room.as_ref().map_or([None, None], |r| r.session.scores())
     }
 
     pub fn decided(&self) -> bool {
@@ -603,6 +705,25 @@ fn listed(r: &protocol::RoomSummary) -> ListedRoom {
             protocol::RoomState::Full => ListedState::Full,
             protocol::RoomState::Playing => ListedState::Playing,
         },
+    }
+}
+
+/// The menus' arrow (the menu font's tile $27, pointing right; `flip` points it left), in white on
+/// black.
+fn draw_arrow(rom: &Rom, pixels: &mut [u8], width: usize, x: usize, y: usize, flip: bool) {
+    const ARROW: usize = 0x27;
+    // On black, as the text is.
+    for py in y.saturating_sub(1)..y + 9 {
+        pixels[py * width + x - 1..][..10].fill(BLACK);
+    }
+    for row in 0..8 {
+        let (lo, hi) = (rom.chr[ARROW * 16 + row], rom.chr[ARROW * 16 + row + 8]);
+        for col in 0..8 {
+            let bit = if flip { col } else { 7 - col };
+            if ((lo | hi) >> bit) & 1 != 0 {
+                pixels[(y + row) * width + x + col] = WHITE;
+            }
+        }
     }
 }
 

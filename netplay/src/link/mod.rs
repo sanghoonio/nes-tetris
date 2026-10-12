@@ -23,3 +23,33 @@ pub enum LinkEvent {
 
 /// The list of rooms as last heard, or why there's none.
 pub type Listing = Result<Vec<RoomSummary>, String>;
+
+/// A room run inside this program (`protocol::Room` has no networking), for a match against a
+/// bot with no server: the same messages as a link, delivered at once.
+pub struct LocalRoom {
+    room: protocol::Room,
+    inbox: std::collections::VecDeque<FromRoom>,
+}
+
+/// This program's connection to its own room.
+const ME: protocol::ConnId = 1;
+
+impl LocalRoom {
+    pub fn new(seed: u64) -> LocalRoom {
+        let mut room = protocol::Room::new(seed);
+        room.handle(protocol::Event::Joined(ME));
+        LocalRoom { room, inbox: Default::default() }
+    }
+
+    pub fn send(&mut self, msg: protocol::ToRoom) {
+        for send in self.room.handle(protocol::Event::Message(ME, msg)) {
+            if send.to == ME {
+                self.inbox.push_back(send.msg);
+            }
+        }
+    }
+
+    pub fn poll(&mut self) -> Option<LinkEvent> {
+        self.inbox.pop_front().map(LinkEvent::Message)
+    }
+}

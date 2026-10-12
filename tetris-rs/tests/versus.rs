@@ -108,6 +108,7 @@ fn in_room(seat: Option<u8>) -> VersusView {
         name: "ANA".into(),
         connection: Connection::InRoom,
         code: "KQXR".into(),
+        offline: false,
         seat,
         players: [Some(("ANA".into(), true)), Some(("BO".into(), false))],
         watching: 2,
@@ -214,7 +215,7 @@ fn settings_music() {
 #[test]
 fn naming() {
     let mut app = at_versus_menu();
-    for _ in 0..3 {
+    for _ in 0..4 {
         app.tap("ArrowDown", 3);
     }
     app.tap("Enter", 3);
@@ -222,12 +223,12 @@ fn naming() {
     app.tap("Backspace", 2);
     app.tap("Backspace", 2);
     app.typed("ZOE 99");
-    // The cursor: an underline after the name (row 14, column 19 + 6), in the letters' white,
+    // The cursor: an underline after the name (row 16, column 19 + 6), in the letters' white,
     // flickering as the arrows do.
     let pixels = |app: &App| app.last.as_ref().unwrap().pixels.clone();
     let white = 0x30;
-    assert!(pixels(&app)[14 * 8 * 256 + 19 * 8..][..8].contains(&white), "the name is in white");
-    let cursor = |app: &App| pixels(app)[(14 * 8 + 7) * 256 + 25 * 8..][..7].iter().all(|&p| p == white);
+    assert!(pixels(&app)[16 * 8 * 256 + 19 * 8..][..8].contains(&white), "the name is in white");
+    let cursor = |app: &App| pixels(app)[(16 * 8 + 7) * 256 + 25 * 8..][..7].iter().all(|&p| p == white);
     let shown: Vec<bool> = (0..32)
         .map(|_| {
             app.idle(1);
@@ -439,7 +440,7 @@ fn kicking() {
     assert!(!app.take().contains(&VersusRequest::Kick));
 }
 
-/// ADD BOT: on the empty second player's row, in the values' column, for the host while the
+/// ADD CPU: on the empty second player's row, in the values' column, for the host while the
 /// seat is free; Up from READY past ROOM SETTINGS reaches it, Enter asks for a bot.
 #[test]
 fn adding_a_bot() {
@@ -448,14 +449,14 @@ fn adding_a_bot() {
     app.take();
     app.view = VersusView { players: [Some(("ANA".into(), false)), None], watching: 0, ..in_room(Some(0)) };
     app.idle(5);
-    // READY is where the cursor starts; Up to ROOM SETTINGS, Up to ADD BOT.
+    // READY is where the cursor starts; Up to ROOM SETTINGS, Up to ADD CPU.
     app.tap("ArrowUp", 2);
     app.tap("ArrowUp", 2);
     app.shot("add_bot");
     app.tap("Enter", 2);
     assert_eq!(app.take(), vec![VersusRequest::AddBot]);
-    // The bot seated: no ADD BOT; it's listed as a bot, and READY.
-    app.view = VersusView { players: [Some(("ANA".into(), false)), Some(("ANATOLI (BOT)".into(), true))], watching: 0, ..in_room(Some(0)) };
+    // The bot seated: no ADD CPU; it's listed as a CPU, and READY.
+    app.view = VersusView { players: [Some(("ANA".into(), false)), Some(("ANATOLI (CPU)".into(), true))], watching: 0, ..in_room(Some(0)) };
     app.idle(5);
     app.shot("bot_seated");
     // Down from READY to LEAVE, and round to the bot's name: Enter asks KICK?.
@@ -466,4 +467,43 @@ fn adding_a_bot() {
     app.tap("ArrowRight", 2);
     app.tap("Enter", 2);
     assert_eq!(app.take(), vec![VersusRequest::Kick]);
+}
+
+/// OFFLINE, fourth on the VERSUS menu, asks for a room run here; its lobby says OFFLINE, no code.
+#[test]
+fn vs_bot() {
+    let mut app = at_versus_menu();
+    for _ in 0..3 {
+        app.tap("ArrowDown", 3);
+    }
+    app.tap("Enter", 5);
+    assert_eq!(app.take(), vec![VersusRequest::VsBot]);
+    app.view = VersusView { offline: true, code: String::new(), players: [Some(("ANA".into(), false)), Some(("KEVIN (CPU)".into(), true))], watching: 0, series: vec![], ..in_room(Some(0)) };
+    app.idle(10);
+    app.shot("vs_bot");
+}
+
+/// No server: JOIN says so and offers only BACK (a code is no use); a lobby that couldn't connect
+/// shows no seats.
+#[test]
+fn no_server() {
+    let mut app = at_versus_menu();
+    app.tap("ArrowDown", 3);
+    app.tap("Enter", 5);
+    app.view.rooms = RoomList::Unreachable;
+    app.idle(5);
+    app.shot("join_unreachable");
+    // The cursor's on BACK, the only item; Up and Down keep it there.
+    app.tap("ArrowUp", 2);
+    app.tap("Enter", 20);
+    assert_eq!(app.take(), vec![VersusRequest::ListRooms(true), VersusRequest::ListRooms(false)]);
+    // HOST with no server.
+    app.view = VersusView { name: "ANA".into(), connection: Connection::Lost("CAN NOT REACH SERVER".into()), ..Default::default() };
+    app.tap("ArrowUp", 3);
+    app.tap("Enter", 20);
+    app.shot("host_unreachable");
+    let shot = app.last.as_ref().unwrap().pixels.clone();
+    // Nothing on the seats' rows (9 and 11) inside the panel.
+    let blank = |row: usize| (row * 8..row * 8 + 8).all(|y| (3 * 8..29 * 8).all(|x| shot[y * 256 + x] == shot[9 * 8 * 256 + 3 * 8]));
+    assert!(blank(9) && blank(11), "no dashes");
 }

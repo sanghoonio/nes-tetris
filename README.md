@@ -141,14 +141,15 @@ statistics aren't shown). Each score box also shows the gap to the other player,
 ahead and red when behind, and above each half a box shows the player's name and the matches
 they've won between you.
 Your game keys work as usual; there's no
-pausing, and pressing Escape twice leaves the match, which forfeits it (against your own bot
-you forfeit and stay in the room). After the result, READY again for a rematch.
+pausing against people, and pressing Escape twice leaves the match, which forfeits it. Against a
+computer player, Escape pauses (RESUME, or QUIT, which forfeits and leaves you in the room). After the result, READY again for a rematch.
 Between matches the host can remove the other player: choose their name in the lobby, then KICK?
 YES.
-With the other seat free, the host can ADD BOT (beside LEAVE): a computer player from a roster
+With the other seat free, the host can ADD CPU (beside the empty seat): a computer player from a roster
 of five, weakest to strongest SLEVE, BOBSON, JEROMY, KEVIN and ANATOLI, playing under the
 room's settings. Its game runs on the host's computer, so it leaves when the host does; KICK?
-removes it too.
+removes it too. OFFLINE on the VERSUS menu plays one with no server at all. A computer player shows as
+`KEVIN (CPU)`.
 
 Each player needs their own ROM. Only button presses and scores travel between the games.
 

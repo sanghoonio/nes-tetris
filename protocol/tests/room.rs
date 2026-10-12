@@ -443,3 +443,21 @@ fn a_bot_plays_on() {
     let out = msg(&mut room, HOST, ToRoom::Resign);
     assert_eq!(result(&out, WATCHER).expect("over").0, Outcome::Win { seat: 1 });
 }
+
+/// Pausing: only the host playing its own bot, during the match; spectators are told.
+#[test]
+fn pausing_a_bot_match() {
+    let (mut room, _) = playing(Pieces::Separate);
+    let out = msg(&mut room, HOST, ToRoom::Pause { paused: true });
+    assert!(to(&out, HOST).iter().any(|m| matches!(m, FromRoom::Error { .. })), "not against a person");
+    assert!(to(&out, WATCHER).is_empty());
+
+    let mut room = Room::new(3);
+    hello(&mut room, HOST, "ana", false);
+    hello(&mut room, WATCHER, "cy", true);
+    msg(&mut room, HOST, ToRoom::AddBot { name: "kevin".into() });
+    msg(&mut room, HOST, ToRoom::Ready { ready: true });
+    let out = msg(&mut room, HOST, ToRoom::Pause { paused: true });
+    assert_eq!(to(&out, WATCHER), vec![FromRoom::Paused { paused: true }]);
+    assert!(to(&out, HOST).is_empty());
+}

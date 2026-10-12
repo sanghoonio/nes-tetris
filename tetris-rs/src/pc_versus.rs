@@ -23,17 +23,21 @@ enum MenuItem {
     Host,
     Join,
     Watch,
+    VsBot,
     Name,
     Back,
 }
 
-const MENU: [(MenuItem, &str, u8); 5] = [
+const MENU: [(MenuItem, &str, u8); 6] = [
     (MenuItem::Host, "HOST", 8),
     (MenuItem::Join, "JOIN", 10),
     (MenuItem::Watch, "WATCH", 12),
-    (MenuItem::Name, "NAME", 14),
+    (MenuItem::VsBot, "OFFLINE", 14),
+    (MenuItem::Name, "NAME", 16),
     (MenuItem::Back, "BACK", BACK_ROW),
 ];
+/// NAME's row.
+const NAME_ROW: u8 = 16;
 
 /// The JOIN and WATCH lists: a room on each of these rows, which of them are showing when there
 /// are more, ENTER A CODE, and BACK on `BACK_ROW`.
@@ -166,7 +170,7 @@ enum LobbyItem {
     Back,
 }
 
-/// ADD BOT's column: the values' (READY's YES / NO, the settings').
+/// ADD CPU's column: the values' (READY's YES / NO, the settings').
 const ADD_BOT_COL: u8 = VALUE_COL;
 
 impl LobbyItem {
@@ -191,7 +195,7 @@ impl LobbyItem {
             LobbyItem::Ready => "READY",
             LobbyItem::RoomSettings => "ROOM SETTINGS",
             LobbyItem::Leave => "LEAVE",
-            LobbyItem::AddBot => "ADD BOT",
+            LobbyItem::AddBot => "ADD CPU",
             LobbyItem::Setting(s) => s.label(),
             LobbyItem::Back => "BACK",
         }
@@ -278,15 +282,15 @@ impl Game {
                     let before = name.clone();
                     let done = self.edit_text(name, NAME_LEN, |c| crate::saved::NAME_CHARS.contains(c) && c != ',');
                     if *name != before {
-                        self.queue_text(MENU[3].2, INNER.0, &Self::label_value("NAME", name));
+                        self.queue_text(NAME_ROW, INNER.0, &Self::label_value("NAME", name));
                     }
                     if done {
                         let name = editing_name.take().unwrap().trim().to_string();
-                        self.queue_text(MENU[3].2, INNER.0, &Self::label_value("NAME", &name));
+                        self.queue_text(NAME_ROW, INNER.0, &Self::label_value("NAME", &name));
                         self.request(VersusRequest::SetName(name));
                     } else {
                         let at = name.chars().count().min(NAME_LEN - 1);
-                        self.ui.underline = Some((MENU[3].2, VALUE_COL + at as u8));
+                        self.ui.underline = Some((NAME_ROW, VALUE_COL + at as u8));
                     }
                     continue;
                 }
@@ -303,6 +307,11 @@ impl Game {
                     match MENU[cursor].0 {
                         MenuItem::Host => {
                             self.request(VersusRequest::Host);
+                            self.lobby().await;
+                            continue 'screen;
+                        }
+                        MenuItem::VsBot => {
+                            self.request(VersusRequest::VsBot);
                             self.lobby().await;
                             continue 'screen;
                         }
@@ -384,7 +393,7 @@ impl Game {
         put(HEADER_ROW, Self::centred(if watch { "WATCH" } else { "JOIN" }));
         let message = match &view.rooms {
             RoomList::Closed | RoomList::Loading => Some("LOOKING FOR ROOMS"),
-            RoomList::Unreachable => Some("CAN NOT REACH THE SERVER"),
+            RoomList::Unreachable => Some("CAN NOT REACH SERVER"),
             RoomList::Rooms(_) if rooms.is_empty() => Some(if watch { "NO ROOMS YET" } else { "NO OPEN ROOMS" }),
             RoomList::Rooms(_) => None,
         };
@@ -400,7 +409,10 @@ impl Game {
             let last = (top + LIST_ROWS.len()).min(rooms.len());
             put(SHOWING_ROW, Self::centred(&format!("ROOMS {}-{} OF {}", top + 1, last, rooms.len())));
         }
-        put(CODE_ROW, Self::label_value("ENTER A CODE", ""));
+        // A code is no use without the server.
+        if view.rooms != RoomList::Unreachable {
+            put(CODE_ROW, Self::label_value("ENTER A CODE", ""));
+        }
         put(BACK_ROW, Self::label_value("BACK", ""));
         lines
     }
@@ -445,13 +457,14 @@ impl Game {
                 self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
                 let view = self.view();
                 let rooms = Self::listed(&view, watch);
-                // The cursor's place in rooms, ENTER A CODE, BACK; a room that's gone leaves it
-                // where it was.
-                let count = rooms.len() + 2;
+                // The cursor's place in rooms, ENTER A CODE (not without the server), BACK; a room
+                // that's gone leaves it where it was.
+                let codes = view.rooms != RoomList::Unreachable;
+                let count = rooms.len() + codes as usize + 1;
                 index = match &at {
                     At::Room(code) => rooms.iter().position(|r| &r.code == code).unwrap_or(index.min(count - 1)),
-                    At::Code => rooms.len(),
-                    At::Back => rooms.len() + 1,
+                    At::Code if codes => rooms.len(),
+                    At::Code | At::Back => count - 1,
                 };
                 // Until the player moves it, the cursor goes to the first room once there is one.
                 if !moved && at == At::Back && !rooms.is_empty() {
@@ -466,7 +479,7 @@ impl Game {
                 }
                 at = match index {
                     i if i < rooms.len() => At::Room(rooms[i].code.clone()),
-                    i if i == rooms.len() => At::Code,
+                    i if i == rooms.len() && codes => At::Code,
                     _ => At::Back,
                 };
                 // Keep the cursor's room in view.
@@ -558,6 +571,7 @@ impl Game {
             Page::Main => {
                 let header = match &view.connection {
                     // The colon is drawn over the full stop (`draw_overlays`).
+                    Connection::InRoom if view.offline => "OFFLINE".to_string(),
                     Connection::InRoom => format!("ROOM CODE. {}", view.code),
                     Connection::Connecting => "CONNECTING".to_string(),
                     Connection::None | Connection::Lost(_) => "NOT CONNECTED".to_string(),
@@ -568,7 +582,8 @@ impl Game {
                     _ => view.status.clone(),
                 };
                 wrapped(&status, &STATUS_ROWS).into_iter().for_each(&mut put);
-                for (i, row) in PLAYER_ROWS.into_iter().enumerate() {
+                // Seats only in a room (not while connecting, or with no server to reach).
+                for (i, row) in PLAYER_ROWS.into_iter().enumerate().filter(|_| in_room) {
                     let text = match &view.players[i] {
                         // The host asking whether to remove the opponent.
                         Some((name, _)) if i == 1 && kick.is_some() => {
@@ -579,7 +594,7 @@ impl Game {
                             Self::label_value(&format!("{name}{you}"), if *ready { "READY" } else { "" })
                         }
                         // An empty seat: the host can seat a bot in it.
-                        None => Self::label_value("-", if i == 1 && Self::can_add_bot(view) { "ADD BOT" } else { "" }),
+                        None => Self::label_value("-", if i == 1 && Self::can_add_bot(view) { "ADD CPU" } else { "" }),
                     };
                     put((row, text));
                 }
@@ -781,7 +796,7 @@ impl Game {
                 LobbyItem::Opponent => view.players[1].as_ref().map_or(0, |p| p.0.len()),
                 _ => at.label().len(),
             };
-            // A name that runs up to the values' column (ANATOLI (BOT)) leaves no room for the
+            // A name that runs up to the values' column (ANATOLI (CPU)) leaves no room for the
             // right-hand arrow.
             let right = at.col() as usize + len < VALUE_COL as usize - 1;
             self.stage_arrows(at.row(), at.col(), len, right);

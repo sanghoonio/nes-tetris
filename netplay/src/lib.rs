@@ -11,7 +11,7 @@ pub mod link;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod local;
 
-pub use link::{Link, LinkEvent, Listing, RoomList};
+pub use link::{Link, LinkEvent, Listing, LocalRoom, RoomList};
 
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
@@ -86,6 +86,8 @@ pub struct Session {
     gone: [bool; 2],
     /// The match's outcome, once decided while the winner plays on.
     decided: Option<Outcome>,
+    /// The match is paused: by this session (its games stop) or, watching, by the host.
+    paused: bool,
     /// Who played the match (or is playing it), as it started: a player who leaves loses their
     /// seat, but the result still names them.
     match_names: [Option<String>; 2],
@@ -152,6 +154,7 @@ impl Session {
             match_seat: None,
             gone: [false; 2],
             decided: None,
+            paused: false,
             match_names: [None, None],
             match_ids: [None, None],
             music: 0,
@@ -263,6 +266,20 @@ impl Session {
         self.bot_seat.is_some()
     }
 
+    /// Pause the match against our own bot, or carry on: our games (ours and the bot's) stop
+    /// where they are; spectators are told.
+    pub fn set_paused(&mut self, paused: bool) {
+        if paused != self.paused && self.bot_seat.is_some() {
+            self.paused = paused;
+            self.outbox.push(ToRoom::Pause { paused });
+        }
+    }
+
+    /// Whether the match is paused (by us, or watching, by the host).
+    pub fn paused(&self) -> bool {
+        self.paused && self.phase == Phase::Playing
+    }
+
     /// Give up the match: a forfeit, staying in the room.
     pub fn resign(&mut self) {
         self.outbox.push(ToRoom::Resign);
@@ -294,6 +311,7 @@ impl Session {
                 self.report_due = None;
                 self.gone = [false; 2];
                 self.decided = None;
+                self.paused = false;
                 self.match_seat = self.seat;
                 self.match_names = self.players.clone().map(|p| p.map(|p| p.name));
                 self.match_ids = self.players.clone().map(|p| p.map(|p| p.id));
@@ -339,6 +357,7 @@ impl Session {
                     return;
                 }
                 self.phase = Phase::Over { outcome, scores, confirmed: None };
+                self.paused = false;
                 if self.match_seat.is_some() {
                     self.report_due = Some(frames);
                     self.report_if_ready();
@@ -360,6 +379,7 @@ impl Session {
             }
             FromRoom::Error { message } => self.notes.push(Note::Error(message)),
             FromRoom::Kicked => self.notes.push(Note::Kicked),
+            FromRoom::Paused { paused } => self.paused = paused,
         }
     }
 
@@ -382,7 +402,7 @@ impl Session {
             }
         }
         let mut samples = vec![];
-        if self.phase == Phase::Playing {
+        if self.phase == Phase::Playing && !(self.paused && self.bot_seat.is_some()) {
             if let Some(own) = self.own.as_mut() {
                 samples = own.step(buttons, &mut self.outbox);
             }
