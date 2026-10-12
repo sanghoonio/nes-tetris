@@ -192,7 +192,7 @@ fn title_menu() {
             play(f, ram)
         }
     });
-    let cov = compare_with("title-menu", 8000, script, Options { menus: true, exit: true, config: Config::default() });
+    let cov = compare_with("title-menu", 8000, script, Options { menus: true, config: Config::default() });
     assert!(cov.games >= 2, "{cov:?}");
 }
 

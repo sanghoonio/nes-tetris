@@ -124,7 +124,32 @@ body,
   color: var(--red);
 }
 
-/* INFO and GITHUB (and in the game, FULLSCREEN and EJECT): dim until pointed at, each on its own. */
+/* The keys: action on the left, key on the right. */
+.help table {
+  border-spacing: calc(var(--px) * 16) calc(var(--px) * 4);
+  margin: 0 auto calc(var(--px) * 12);
+}
+
+.help td:nth-child(even) {
+  color: var(--yellow);
+}
+
+/* A wider gap between the two columns of keys. */
+.help td:nth-child(3) {
+  padding-left: calc(var(--px) * 16);
+}
+
+.help p {
+  margin: 0 0 calc(var(--px) * 12);
+  text-align: center;
+}
+
+.modal .panel > .help button {
+  display: block;
+  margin: 0 auto;
+}
+
+/* INFO and GITHUB (and in the game, HELP and MENU): dim until pointed at, each on its own. */
 .links {
   display: flex;
   justify-content: center;

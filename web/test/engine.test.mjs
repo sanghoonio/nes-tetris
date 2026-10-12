@@ -130,3 +130,12 @@ test("a match between two copies, found through JOIN's list", async (t) => {
     per: 30,
   });
 });
+
+test("the keys for the help panel, as set", () => {
+  const engine = new Engine(ROM, JSON.stringify({ keys: { rotate_right: "KeyK", pause: "KeyP" } }), 48000, "", 1);
+  const controls = new Map(JSON.parse(engine.controls()));
+  assert.equal(controls.get("MOVE LEFT"), "LEFT");
+  assert.equal(controls.get("ROTATE RIGHT"), "K");
+  assert.equal(controls.get("PAUSE"), "P");
+  engine.free();
+});

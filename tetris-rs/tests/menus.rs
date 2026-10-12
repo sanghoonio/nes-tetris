@@ -9,7 +9,7 @@ pub struct App(pub Runner);
 impl App {
     pub fn new(config: Config) -> Self {
         let rom = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../tetris.nes")).unwrap();
-        let options = Options { menus: true, exit: true, config };
+        let options = Options { menus: true, config };
         App(Runner::with_options(Arc::new(Rom::new(&rom).unwrap()), None, None, options))
     }
 

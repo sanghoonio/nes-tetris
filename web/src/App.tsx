@@ -7,8 +7,9 @@ const SOURCE = "https://github.com/sanghoonio/nes-tetris";
 export default function App() {
   // undefined while looking for a kept ROM.
   const [rom, setRom] = useState<Uint8Array | null | undefined>(undefined);
-  // What's open over the page: the game's menu, or the info panel.
-  const [panel, setPanel] = useState<"menu" | "info" | null>(null);
+  // What's open over the page: the game's menu, the info panel, or the keys.
+  const [panel, setPanel] = useState<"menu" | "info" | "help" | null>(null);
+  const runner = useRef<Runner | null>(null);
   useEffect(() => {
     loadRom().then(setRom, () => setRom(null));
   }, []);
@@ -37,8 +38,8 @@ export default function App() {
         />
       ) : (
         <>
-          <Game rom={rom} free={panel === null} />
-          {panel === null && <MenuButton onClick={() => setPanel("menu")} />}
+          <Game rom={rom} free={panel === null} runner={runner} />
+          {panel === null && <Corner onHelp={() => setPanel("help")} onMenu={() => setPanel("menu")} />}
         </>
       )}
       {panel === "menu" && (
@@ -71,6 +72,7 @@ export default function App() {
         </Panel>
       )}
       {panel === "info" && <Info onClose={close} />}
+      {panel === "help" && <Help controls={runner.current?.controls() ?? []} onClose={close} />}
     </>
   );
 }
@@ -116,9 +118,9 @@ function RomPage({ onRom, links }: { onRom: (rom: Uint8Array) => void; links: Re
   );
 }
 
-/// MENU in the corner over the game: as the other links while the mouse moves, fainter after it's
-/// been still a couple of seconds (the game is played with keys).
-function MenuButton({ onClick }: { onClick: () => void }) {
+/// HELP and MENU in the corner over the game: as the other links while the mouse moves, fainter
+/// after it's been still a couple of seconds (the game is played with keys).
+function Corner({ onHelp, onMenu }: { onHelp: () => void; onMenu: () => void }) {
   const [shown, setShown] = useState(true);
   useEffect(() => {
     let timer = window.setTimeout(() => setShown(false), 2000);
@@ -135,7 +137,8 @@ function MenuButton({ onClick }: { onClick: () => void }) {
   }, []);
   return (
     <div className={shown ? "links corner" : "links corner hidden"}>
-      <button onClick={onClick}>Menu</button>
+      <button onClick={onHelp}>Help</button>
+      <button onClick={onMenu}>Menu</button>
     </div>
   );
 }
@@ -156,14 +159,12 @@ function Panel({ onClose, children }: { onClose: () => void; children: React.Rea
   );
 }
 
-/// What this is, the keys, and where the source is.
+/// What this is, and where the source is.
 function Info({ onClose }: { onClose: () => void }) {
   return (
     <Panel onClose={onClose}>
       <div className="info">
-        <p>NES Tetris, rebuilt in Rust, using assets from your own ROM. The ROM stays in this browser.</p>
-        <p>Arrows move, X and Z rotate, Enter chooses, Escape goes back and pauses. Keys can be changed under Settings.</p>
-        <p>Versus plays others online, on the web or the desktop app.</p>
+        <p>NES Tetris, rebuilt in Rust, using assets from your own ROM. Play against others or CPU in versus mode.</p>
         <p>
           Source:{" "}
           <a href={SOURCE} target="_blank" rel="noreferrer">
@@ -176,12 +177,39 @@ function Info({ onClose }: { onClose: () => void }) {
   );
 }
 
+/// The keys: the game's as set (SETTINGS > CONTROLS changes them), in two columns, moving on
+/// the left and rotating and pausing on the right; hard drop is off unless turned on, so left out.
+function Help({ controls, onClose }: { controls: [string, string][]; onClose: () => void }) {
+  const shown = controls.filter(([action]) => action !== "HARD DROP");
+  const half = Math.ceil(shown.length / 2);
+  const rows = shown.slice(0, half).map((left, i) => [left, shown[half + i]]);
+  return (
+    <Panel onClose={onClose}>
+      <div className="help">
+        <table>
+          <tbody>
+            {rows.map(([left, right]) => (
+              <tr key={left[0]}>
+                <td>{left[0]}</td>
+                <td>{left[1]}</td>
+                <td>{right?.[0]}</td>
+                <td>{right?.[1]}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p>Use arrow keys, Enter, and Esc to navigate.</p>
+        <button onClick={onClose}>Back</button>
+      </div>
+    </Panel>
+  );
+}
+
 /// The game, from power-on. Sound starts with the first key or click (browsers allow it only
 /// then). EXIT powers it on again. While a panel is up (`free` false) it takes no keys, and
 /// stops where it is unless in a VERSUS room.
-function Game({ rom, free }: { rom: Uint8Array; free: boolean }) {
+function Game({ rom, free, runner }: { rom: Uint8Array; free: boolean; runner: React.RefObject<Runner | null> }) {
   const canvas = useRef<HTMLCanvasElement>(null);
-  const runner = useRef<Runner | null>(null);
   const [run, setRun] = useState(0);
   useEffect(() => {
     document.title = "Tetris";

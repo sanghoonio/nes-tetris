@@ -54,10 +54,9 @@ pub const GUARD_FRAMES: u32 = 20;
 
 impl App {
     /// The game from power-on with `settings`; `sample_rate` for its sound (none for silence),
-    /// `seed` for anything random the app makes up (room codes), `exit` for EXIT on the title
-    /// menu (not in a web page).
-    pub fn new(rom: Arc<Rom>, sample_rate: Option<u32>, settings: Settings, seed: u64, exit: bool) -> Self {
-        let options = Options { menus: true, exit, config: settings.config() };
+    /// `seed` for anything random the app makes up (room codes).
+    pub fn new(rom: Arc<Rom>, sample_rate: Option<u32>, settings: Settings, seed: u64) -> Self {
+        let options = Options { menus: true, config: settings.config() };
         #[cfg(feature = "versus")]
         let versus = versus::Versus::new(rom.clone(), sample_rate, settings.versus.server.clone(), settings.versus.name.clone(), seed);
         #[cfg(not(feature = "versus"))]
@@ -218,7 +217,7 @@ mod tests {
 
     impl Copy {
         fn new(server: &str, name: &str) -> Self {
-            let mut app = App::new(rom(), None, Settings::default(), name.len() as u64 * 7919 + server.len() as u64, true);
+            let mut app = App::new(rom(), None, Settings::default(), name.len() as u64 * 7919 + server.len() as u64);
             app.set_versus(Some(server.to_string()), Some(name));
             Copy { app, start: Instant::now(), width: 0, height: 0, last: vec![] }
         }

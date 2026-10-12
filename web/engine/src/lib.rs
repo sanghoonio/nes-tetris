@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use client::{App, Input, Settings};
+use tetris_rs::options::{key_label, ACTIONS};
 use tetris_rs::Rom;
 use wasm_bindgen::prelude::*;
 
@@ -27,7 +28,7 @@ impl Engine {
     pub fn new(rom: &[u8], settings: Option<String>, sample_rate: u32, server: String, seed: f64) -> Result<Engine, JsError> {
         let rom = Rom::new(rom).map_err(|e| JsError::new(&e.to_string()))?;
         let settings: Settings = settings.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
-        let mut app = App::new(Arc::new(rom), Some(sample_rate), settings, seed.to_bits(), false);
+        let mut app = App::new(Arc::new(rom), Some(sample_rate), settings, seed.to_bits());
         app.set_versus(Some(server), None);
         Ok(Engine { app, rgba: vec![], width: 256, height: 240, samples: vec![] })
     }
@@ -95,5 +96,12 @@ impl Engine {
     /// EXIT was chosen.
     pub fn quit(&self) -> bool {
         self.app.quit()
+    }
+
+    /// The game's keys as set, for the page's help: `[action, key]` pairs (JSON).
+    pub fn controls(&self) -> String {
+        let keys = self.app.settings().config().keys;
+        let pairs: Vec<[String; 2]> = ACTIONS.iter().zip(keys).map(|(a, k)| [a.to_string(), key_label(&k)]).collect();
+        serde_json::to_string(&pairs).expect("controls serialise")
     }
 }

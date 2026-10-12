@@ -348,9 +348,9 @@ impl Game {
         }
     }
 
-    /// The title menu's items: EXIT only where there's something to exit to (`Options::exit`).
+    /// The title menu's items.
     fn title_items(&self) -> Vec<TitleItem> {
-        TITLE_ACTIONS.into_iter().filter(|&a| a != TitleItem::Exit || self.options.exit).collect()
+        TITLE_ACTIONS.to_vec()
     }
 
     fn title_row(items: &[TitleItem], i: usize) -> u8 {

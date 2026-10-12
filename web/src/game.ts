@@ -121,6 +121,11 @@ export class Runner {
     if (!on) this.held.clear();
   }
 
+  /// The game's keys as set: action and key, as the settings screen names them.
+  controls(): [string, string][] {
+    return JSON.parse(this.engine.controls());
+  }
+
   /// Stop the game where it is, or carry on. Not in a VERSUS room: the others play on.
   setPaused(on: boolean) {
     this.paused = on;
