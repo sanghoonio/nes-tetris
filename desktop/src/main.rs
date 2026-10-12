@@ -42,6 +42,10 @@ impl frontend::Game for Desktop {
         out
     }
 
+    fn height(&self) -> usize {
+        self.app.height()
+    }
+
     fn quit(&self) -> bool {
         self.app.quit()
     }

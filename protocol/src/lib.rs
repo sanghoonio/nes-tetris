@@ -69,6 +69,9 @@ pub enum ToRoom {
     /// host's machine, which sends its inputs (`Inputs` with its `seat`); it's always ready, and
     /// leaves with the host.
     AddBot { name: String },
+    /// The sender gives up the match: a forfeit, staying in the room (against the host's own bot,
+    /// quitting a match does this rather than leaving).
+    Resign,
 }
 
 /// Room to client.
@@ -89,7 +92,10 @@ pub enum FromRoom {
     /// A player's connection dropped during a match. Before topping out that's a forfeit (a
     /// `Result` follows); after, their board stops where it is and the match goes on.
     Gone { seat: Seat },
-    /// The match is decided. Each seat's game counts up to `frames[seat]` frames, where its score
+    /// The match is decided, but the winner plays on (until they top out, leave or resign; the
+    /// outcome stands). `Result` follows when they stop.
+    Decided { match_id: u32, outcome: Outcome },
+    /// The match is over. Each seat's game counts up to `frames[seat]` frames, where its score
     /// was `scores[seat]`. Clients stop the games, then report the scores they have at those frames.
     Result { match_id: u32, outcome: Outcome, scores: [u32; 2], frames: [u32; 2] },
     /// Whether the players' reports agreed with the scores the result was decided on.

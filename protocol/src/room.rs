@@ -66,6 +66,8 @@ struct Match {
     id: u32,
     seeds: [u32; 2],
     plays: [Play; 2],
+    /// Decided while the winner plays on.
+    decided: Option<Outcome>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -225,6 +227,13 @@ impl Room {
                 out.to(kicked, FromRoom::Kicked);
                 self.left(kicked, out);
             }
+            ToRoom::Resign => {
+                let Some(seat) = seat else { return out.error(conn, "spectators don't play") };
+                let Some(game) = &self.game else { return };
+                // Decided already: the winner stopping playing on.
+                let outcome = game.decided.unwrap_or(Outcome::Forfeit { seat });
+                self.finish(outcome, out);
+            }
             ToRoom::AddBot { name } => {
                 if seat != Some(0) {
                     return out.error(conn, "only the host adds a bot");
@@ -265,9 +274,7 @@ impl Room {
                 play.over = over;
                 let others: Vec<ConnId> = self.conns().into_iter().filter(|&c| c != conn).collect();
                 out.all(others, FromRoom::Inputs { seat, frame, buttons, score, over });
-                if let Some(outcome) = decide(&self.game.as_ref().unwrap().plays) {
-                    self.finish(outcome, out);
-                }
+                self.settle(out);
             }
             ToRoom::Checksum { frame, hash, seat: for_seat } => {
                 let Some(seat) = self.playing_seat(conn, for_seat) else { return out.error(conn, "not a seat you play") };
@@ -334,7 +341,7 @@ impl Room {
         };
         let id = self.next_match;
         self.next_match += 1;
-        self.game = Some(Match { id, seeds, plays: Default::default() });
+        self.game = Some(Match { id, seeds, plays: Default::default(), decided: None });
         self.awaiting = None;
         let start = FromRoom::Start { match_id: id, settings: self.settings, seeds, countdown_ms: crate::COUNTDOWN_MS };
         out.all(self.conns(), start);
@@ -385,13 +392,28 @@ impl Room {
             return;
         }
         out.all(self.conns(), FromRoom::Gone { seat });
-        // Leaving before topping out forfeits (there's no coming back). After, the score stands
-        // and the match goes on: the other player can still pass it.
-        if !self.game.as_ref().unwrap().plays[s].over {
+        // Leaving before topping out forfeits (there's no coming back), unless the match is
+        // decided already (the winner was playing on). After topping out, the score stands and the
+        // match goes on: the other player can still pass it.
+        let game = self.game.as_ref().unwrap();
+        if game.decided.is_none() && !game.plays[s].over {
             return self.finish(Outcome::Forfeit { seat }, out);
         }
-        if let Some(outcome) = decide(&self.game.as_ref().unwrap().plays) {
-            self.finish(outcome, out);
+        self.settle(out);
+    }
+
+    /// Once the match is decided: over, if nobody's still playing (everyone topped out or gone);
+    /// otherwise everyone's told, and the winner (a bot too) plays on.
+    fn settle(&mut self, out: &mut Out) {
+        let game = self.game.as_ref().unwrap();
+        let Some(outcome) = game.decided.or_else(|| decide(&game.plays)) else { return };
+        if game.plays.iter().all(|p| p.over || p.gone) {
+            return self.finish(outcome, out);
+        }
+        if game.decided.is_none() {
+            let match_id = game.id;
+            self.game.as_mut().unwrap().decided = Some(outcome);
+            out.all(self.conns(), FromRoom::Decided { match_id, outcome });
         }
     }
 

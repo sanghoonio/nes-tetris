@@ -6,7 +6,6 @@ import init, { Engine } from "./engine/engine.js";
 
 const FRAME_MS = 1000 / 60.0988;
 const SETTINGS = "nes-tetris.settings";
-const HEIGHT = 240;
 
 let ready: Promise<unknown> | null = null;
 function loadEngine() {
@@ -76,6 +75,7 @@ export class Runner {
   private behind = 0;
   private stopped = false;
   private width = 0;
+  private height = 0;
   private listeners: [EventTarget, string, EventListener][] = [];
 
   private constructor(
@@ -208,24 +208,24 @@ export class Runner {
   }
 
   private paint() {
-    const width = this.engine.width();
-    if (width !== this.width) {
-      this.width = width;
+    const [width, height] = [this.engine.width(), this.engine.height()];
+    if (width !== this.width || height !== this.height) {
+      [this.width, this.height] = [width, height];
       this.canvas.width = width;
-      this.canvas.height = HEIGHT;
+      this.canvas.height = height;
       this.fit();
     }
     const rgba = this.engine.rgba();
     const pixels = new Uint8ClampedArray(rgba.buffer as ArrayBuffer, rgba.byteOffset, rgba.length);
-    this.draw.putImageData(new ImageData(pixels, width, HEIGHT), 0, 0);
+    this.draw.putImageData(new ImageData(pixels, width, height), 0, 0);
   }
 
   /// Size the canvas to the window, keeping its shape: as big as fits, or whole multiples only.
   private fit() {
     if (!this.width) return;
-    let scale = Math.min(innerWidth / this.width, innerHeight / HEIGHT);
+    let scale = Math.min(innerWidth / this.width, innerHeight / this.height);
     if (this.engine.integer_scale()) scale = Math.max(1, Math.floor(scale));
     this.canvas.style.width = `${Math.floor(this.width * scale)}px`;
-    this.canvas.style.height = `${Math.floor(HEIGHT * scale)}px`;
+    this.canvas.style.height = `${Math.floor(this.height * scale)}px`;
   }
 }

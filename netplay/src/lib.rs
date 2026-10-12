@@ -84,6 +84,8 @@ pub struct Session {
     match_seat: Option<Seat>,
     /// Seats whose player left during this match.
     gone: [bool; 2],
+    /// The match's outcome, once decided while the winner plays on.
+    decided: Option<Outcome>,
     /// Who played the match (or is playing it), as it started: a player who leaves loses their
     /// seat, but the result still names them.
     match_names: [Option<String>; 2],
@@ -149,6 +151,7 @@ impl Session {
             report_due: None,
             match_seat: None,
             gone: [false; 2],
+            decided: None,
             match_names: [None, None],
             match_ids: [None, None],
             music: 0,
@@ -223,6 +226,11 @@ impl Session {
         self.match_ids
     }
 
+    /// The outcome while the match is decided but the winner plays on.
+    pub fn decided(&self) -> Option<Outcome> {
+        self.decided
+    }
+
     /// Seats whose player left during this match (their board stops where it is).
     pub fn gone(&self) -> [bool; 2] {
         self.gone
@@ -250,6 +258,16 @@ impl Session {
         self.outbox.push(ToRoom::Kick);
     }
 
+    /// Whether this session plays a bot in the current match (the host's own).
+    pub fn playing_bot(&self) -> bool {
+        self.bot_seat.is_some()
+    }
+
+    /// Give up the match: a forfeit, staying in the room.
+    pub fn resign(&mut self) {
+        self.outbox.push(ToRoom::Resign);
+    }
+
     /// As host, seat a bot from the roster by name (between matches). This session plays it.
     pub fn add_bot(&mut self, name: &str) {
         self.outbox.push(ToRoom::AddBot { name: name.to_string() });
@@ -275,6 +293,7 @@ impl Session {
                 self.own = None;
                 self.report_due = None;
                 self.gone = [false; 2];
+                self.decided = None;
                 self.match_seat = self.seat;
                 self.match_names = self.players.clone().map(|p| p.map(|p| p.name));
                 self.match_ids = self.players.clone().map(|p| p.map(|p| p.id));
@@ -309,6 +328,11 @@ impl Session {
             FromRoom::Gone { seat } => {
                 self.gone[seat as usize] = true;
                 self.notes.push(Note::Gone(seat));
+            }
+            FromRoom::Decided { match_id, outcome } => {
+                if match_id == self.match_id {
+                    self.decided = Some(outcome);
+                }
             }
             FromRoom::Result { match_id, outcome, scores, frames } => {
                 if match_id != self.match_id {

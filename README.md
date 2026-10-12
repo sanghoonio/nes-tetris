@@ -121,7 +121,9 @@ NES. Your settings, your last game's choices and your high scores are saved in
 
 An optional build adds VERSUS to the title menu: one-on-one races against another copy of the
 game, as at the Classic Tetris World Championship. Each player plays their own game; when one
-tops out, the other plays on until they pass that score or top out too. Others can watch.
+tops out, the other plays on until they pass that score or top out too. Passing it wins, and the
+winner (a bot too) can keep playing; the result is shown when they top out or quit, or against
+your own bot when you press Escape twice. Others can watch.
 
     cargo run --release --features versus
 
@@ -136,9 +138,11 @@ SETTINGS in the room, where the others can look but not change them; both player
 choose READY and the match starts after a countdown. The window widens to show both games side by
 side, yours on the left, each with its playfield, score, next piece and level (the piece
 statistics aren't shown). Each score box also shows the gap to the other player, green when
-ahead and red when behind, and the names sit under the boards with the matches won between you.
+ahead and red when behind, and above each half a box shows the player's name and the matches
+they've won between you.
 Your game keys work as usual; there's no
-pausing, and pressing Escape twice leaves the match, which forfeits it. After the result, READY again for a rematch.
+pausing, and pressing Escape twice leaves the match, which forfeits it (against your own bot
+you forfeit and stay in the room). After the result, READY again for a rematch.
 Between matches the host can remove the other player: choose their name in the lobby, then KICK?
 YES.
 With the other seat free, the host can ADD BOT (beside LEAVE): a computer player from a roster

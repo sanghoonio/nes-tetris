@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 pub use settings::Settings;
 use settings::{LastGame, Table};
+use tetris_rs::frame::HEIGHT;
 use tetris_rs::{Keys, Options, Rom, Runner, Saved};
 
 /// `gameMode` once a game (not the demo) is under way.
@@ -37,6 +38,8 @@ pub struct App {
     /// The settings screen changed something the shell shows (volume, fullscreen, scaling).
     config_changed: bool,
     quit: bool,
+    /// The last picture's height (taller during a VERSUS match).
+    height: usize,
     #[cfg(feature = "versus")]
     versus: versus::Versus,
     /// Frames left in which the lobby ignores key presses, after a match hands the window back
@@ -65,6 +68,7 @@ impl App {
             dirty: false,
             config_changed: false,
             quit: false,
+            height: HEIGHT,
             #[cfg(feature = "versus")]
             versus,
             #[cfg(feature = "versus")]
@@ -106,13 +110,18 @@ impl App {
         false
     }
 
+    /// The last picture's height in pixels (its width is its length over this).
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
     /// EXIT was chosen.
     pub fn quit(&self) -> bool {
         self.quit
     }
 
-    /// One frame at `now` (milliseconds on any steady clock): the picture (palette indices, 240
-    /// rows, as wide as the slice says) and the sound.
+    /// One frame at `now` (milliseconds on any steady clock): the picture (palette indices,
+    /// `height()` rows, as wide as the slice says) and the sound.
     pub fn frame(&mut self, input: &Input, now: u64) -> (Vec<u8>, Vec<f32>) {
         #[cfg(not(feature = "versus"))]
         let _ = now;
@@ -128,6 +137,8 @@ impl App {
                 let out = self.versus.match_frame(frame);
                 self.versus.flush(&self.settings.versus);
                 self.guard = GUARD_FRAMES;
+                // (Leaving with Escape gives a plain screen's black.)
+                self.height = if out.0.len() == versus::MATCH_WIDTH * versus::MATCH_HEIGHT { versus::MATCH_HEIGHT } else { HEIGHT };
                 return out;
             }
         }
@@ -156,6 +167,7 @@ impl App {
         }
         self.save_changes(&out.ram);
         self.quit = out.quit;
+        self.height = HEIGHT;
         ((out.pixels as Box<[u8]>).into_vec(), out.samples)
     }
 
@@ -200,6 +212,7 @@ mod tests {
         app: App,
         start: Instant,
         width: usize,
+        height: usize,
         last: Vec<u8>,
     }
 
@@ -207,7 +220,7 @@ mod tests {
         fn new(server: &str, name: &str) -> Self {
             let mut app = App::new(rom(), None, Settings::default(), name.len() as u64 * 7919 + server.len() as u64, true);
             app.set_versus(Some(server.to_string()), Some(name));
-            Copy { app, start: Instant::now(), width: 0, last: vec![] }
+            Copy { app, start: Instant::now(), width: 0, height: 0, last: vec![] }
         }
 
         fn frame(&mut self, held: &[&str], pressed: &[&str]) {
@@ -217,7 +230,8 @@ mod tests {
                 unfocused: false,
             };
             let (pixels, _) = self.app.frame(&input, self.start.elapsed().as_millis() as u64);
-            self.width = pixels.len() / 240;
+            self.height = self.app.height();
+            self.width = pixels.len() / self.height;
             self.last = pixels;
         }
 
@@ -225,7 +239,7 @@ mod tests {
         fn shot(&self, name: &str) {
             let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/versus");
             std::fs::create_dir_all(&dir).unwrap();
-            let mut ppm = format!("P6 {} 240 255\n", self.width).into_bytes();
+            let mut ppm = format!("P6 {} {} 255\n", self.width, self.height).into_bytes();
             for &p in &self.last {
                 let rgb = ppu::PALETTE[(p & 0x3F) as usize];
                 ppm.extend_from_slice(&[(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8]);
@@ -469,9 +483,9 @@ mod tests {
         host.open_versus(0);
         let mut copies = vec![host];
         run("host in room", &mut copies, 10, |c| c[0].view().connection == Connection::InRoom);
-        // Down from READY to LEAVE, Right to ADD BOT.
-        copies[0].tap("ArrowDown", 2);
-        copies[0].tap("ArrowRight", 2);
+        // Up from READY past ROOM SETTINGS to ADD BOT, beside the empty seat's dash.
+        copies[0].tap("ArrowUp", 2);
+        copies[0].tap("ArrowUp", 2);
         copies[0].tap("Enter", 2);
         run("a bot seated", &mut copies, 10, |c| c[0].view().players[1].as_ref().is_some_and(|p| p.0.ends_with(" (BOT)") && p.1));
         let bot = copies[0].view().players[1].clone().unwrap().0;
@@ -479,13 +493,31 @@ mod tests {
         copies[0].idle(5);
         copies[0].tap("Enter", 2);
         run("the match", &mut copies, 20, |c| c[0].app.versus.in_match());
-        run("confirmed", &mut copies, 120, |c| c[0].app.versus.confirmed());
+        // Over, or decided with the winner playing on (the bot, after the host tops out, can play
+        // on for minutes): then the host ends it with Escape twice.
+        run("decided", &mut copies, 120, |c| c[0].app.versus.confirmed() || c[0].app.versus.decided());
+        if !copies[0].app.versus.confirmed() {
+            copies[0].tap("Escape", 2);
+            copies[0].tap("Escape", 2);
+        }
+        run("confirmed", &mut copies, 20, |c| c[0].app.versus.confirmed());
         copies[0].shot("match_bot");
         copies[0].tap("Enter", 2);
         run("back to lobby", &mut copies, 10, |c| !c[0].app.versus.in_match());
         let name = bot.trim_end_matches(" (BOT)");
         let series = &copies[0].view().series;
         assert!(series.len() == 1 && series[0].starts_with("ANA ") && series[0].ends_with(name), "{series:?}");
+        // Another, quit with Escape twice: a forfeit, and still in the room with the bot.
+        copies[0].idle(GUARD_FRAMES as usize);
+        copies[0].tap("Enter", 2);
+        run("a second match", &mut copies, 20, |c| c[0].app.versus.playing());
+        copies[0].tap("Escape", 2);
+        copies[0].tap("Escape", 2);
+        run("the forfeit", &mut copies, 20, |c| c[0].app.versus.confirmed());
+        copies[0].tap("Enter", 2);
+        run("back to lobby again", &mut copies, 10, |c| !c[0].app.versus.in_match());
+        assert_eq!(copies[0].view().connection, Connection::InRoom);
+        assert!(copies[0].view().players[1].as_ref().is_some_and(|p| p.0.ends_with(" (BOT)")));
         // KICK? YES removes it (Up past ROOM SETTINGS to its name).
         copies[0].idle(GUARD_FRAMES as usize);
         copies[0].tap("ArrowUp", 2);
@@ -556,7 +588,7 @@ mod tests {
         bo.idle(1);
         bo.shot("host_left");
         // Both boards drawn: BO's own on the left, ANA's stopped one on the right.
-        let lit = |x0: usize| (0..240).any(|y| (x0..x0 + versus::MATCH_WIDTH / 2).any(|x| bo.last[y * bo.width + x] != 0x0F));
+        let lit = |x0: usize| (0..bo.height).any(|y| (x0..x0 + versus::MATCH_WIDTH / 2).any(|x| bo.last[y * bo.width + x] != 0x0F));
         assert_eq!(bo.width, versus::MATCH_WIDTH);
         assert!(lit(0) && lit(versus::MATCH_WIDTH / 2));
     }

@@ -123,12 +123,31 @@ fn survivor_wins_on_passing_the_score() {
     assert_eq!(result(&out, HOST), None, "the opponent plays on");
     let out = inputs(&mut room, OPP, 0, 15, 1200, false);
     assert_eq!(result(&out, HOST), None, "level isn't passing");
+    // Passing decides it: everyone's told, and the winner plays on.
     let out = inputs(&mut room, OPP, 15, 15, 1300, false);
-    let (outcome, scores, frames) = result(&out, WATCHER).expect("decided");
+    assert_eq!(result(&out, WATCHER), None, "the winner plays on");
+    assert!(to(&out, WATCHER).contains(&FromRoom::Decided { match_id: 1, outcome: Outcome::Win { seat: 1 } }));
+    assert!(room.playing());
+    inputs(&mut room, OPP, 30, 15, 2500, false);
+    // Over when the winner tops out, with their final score; the outcome stands.
+    let out = inputs(&mut room, OPP, 45, 5, 2600, true);
+    let (outcome, scores, frames) = result(&out, WATCHER).expect("over");
     assert_eq!(outcome, Outcome::Win { seat: 1 });
-    assert_eq!(scores, [1200, 1300]);
-    assert_eq!(frames, [25, 30]);
+    assert_eq!(scores, [1200, 2600]);
+    assert_eq!(frames, [25, 50]);
     assert!(!room.playing());
+}
+
+/// Playing on after winning, the winner leaving or resigning ends it, and isn't a forfeit.
+#[test]
+fn the_winner_stops_playing_on() {
+    for stop in [Event::Left(OPP), Event::Message(OPP, ToRoom::Resign)] {
+        let (mut room, _) = playing(Pieces::Separate);
+        inputs(&mut room, HOST, 0, 15, 100, true);
+        inputs(&mut room, OPP, 0, 15, 200, false);
+        let out = room.handle(stop);
+        assert_eq!(result(&out, WATCHER).expect("over").0, Outcome::Win { seat: 1 });
+    }
 }
 
 #[test]
@@ -164,7 +183,7 @@ fn leaving_after_topping_out_isnt_a_forfeit() {
     inputs(&mut room, OPP, 0, 15, 5000, true);
     let out = room.handle(Event::Left(OPP));
     assert_eq!(result(&out, HOST), None, "the match goes on");
-    let out = inputs(&mut room, HOST, 0, 15, 5100, false);
+    let out = inputs(&mut room, HOST, 0, 15, 5100, true);
     assert_eq!(result(&out, HOST).unwrap().0, Outcome::Win { seat: 0 });
 }
 
@@ -198,7 +217,7 @@ fn results_are_confirmed_by_the_reports() {
     for (opp_report, agreed) in [([300, 500], true), ([300, 400], false)] {
         let (mut room, _) = playing(Pieces::Separate);
         inputs(&mut room, HOST, 0, 15, 300, true);
-        inputs(&mut room, OPP, 0, 15, 500, false);
+        inputs(&mut room, OPP, 0, 15, 500, true);
         assert!(msg(&mut room, HOST, ToRoom::Report { match_id: 1, scores: [300, 500] }).is_empty());
         let out = msg(&mut room, OPP, ToRoom::Report { match_id: 1, scores: opp_report });
         assert_eq!(to(&out, WATCHER), vec![FromRoom::Confirmed { match_id: 1, agreed }]);
@@ -209,7 +228,7 @@ fn results_are_confirmed_by_the_reports() {
 fn late_inputs_after_a_result_are_ignored() {
     let (mut room, _) = playing(Pieces::Separate);
     inputs(&mut room, HOST, 0, 15, 100, true);
-    inputs(&mut room, OPP, 0, 15, 200, false);
+    inputs(&mut room, OPP, 0, 15, 200, true);
     assert!(!room.playing());
     assert!(inputs(&mut room, OPP, 15, 15, 240, false).is_empty());
 }
@@ -218,7 +237,7 @@ fn late_inputs_after_a_result_are_ignored() {
 fn rematch_after_a_result() {
     let (mut room, _) = playing(Pieces::Separate);
     inputs(&mut room, HOST, 0, 15, 100, true);
-    inputs(&mut room, OPP, 0, 15, 200, false);
+    inputs(&mut room, OPP, 0, 15, 200, true);
     msg(&mut room, HOST, ToRoom::Ready { ready: true });
     let out = msg(&mut room, OPP, ToRoom::Ready { ready: true });
     assert!(to(&out, HOST).iter().any(|m| matches!(m, FromRoom::Start { match_id: 2, .. })));
@@ -344,14 +363,16 @@ fn a_bot_plays_for_the_host() {
     let out = msg(&mut room, HOST, bot_inputs(true));
     assert!(to(&out, WATCHER).contains(&FromRoom::Inputs { seat: 1, frame: 0, buttons: vec![0; 15], score: 100, over: true }));
     assert!(to(&out, HOST).is_empty(), "not back to the host");
-    // The host passes the bot's 100: the host wins.
+    // The host passes the bot's 100, and tops out after playing on: the host wins.
     let out = inputs(&mut room, HOST, 0, 15, 200, false);
+    assert_eq!(result(&out, WATCHER), None, "playing on");
+    let out = inputs(&mut room, HOST, 15, 15, 300, true);
     let (outcome, scores, _) = result(&out, WATCHER).expect("a result");
-    assert_eq!((outcome, scores), (Outcome::Win { seat: 0 }, [200, 100]));
+    assert_eq!((outcome, scores), (Outcome::Win { seat: 0 }, [300, 100]));
     // The bot stays seated and ready for a rematch.
     assert!(lobby_players(&out, WATCHER)[1].as_ref().unwrap().ready);
     // Only the host's report is waited for.
-    let out = msg(&mut room, HOST, ToRoom::Report { match_id: 1, scores: [200, 100] });
+    let out = msg(&mut room, HOST, ToRoom::Report { match_id: 1, scores: [300, 100] });
     assert!(to(&out, WATCHER).contains(&FromRoom::Confirmed { match_id: 1, agreed: true }));
     // The host kicks it.
     let out = msg(&mut room, HOST, ToRoom::Kick);
@@ -388,4 +409,37 @@ fn the_host_hears_once() {
     hello(&mut room, HOST, "ana", false);
     let out = msg(&mut room, HOST, ToRoom::AddBot { name: "byte".into() });
     assert_eq!(to(&out, HOST).len(), 1);
+}
+
+/// Resigning: a forfeit, and the resigner stays seated.
+#[test]
+fn resigning_stays() {
+    let mut room = Room::new(3);
+    hello(&mut room, HOST, "ana", false);
+    hello(&mut room, WATCHER, "cy", true);
+    msg(&mut room, HOST, ToRoom::AddBot { name: "sleve".into() });
+    msg(&mut room, HOST, ToRoom::Ready { ready: true });
+    let out = msg(&mut room, HOST, ToRoom::Resign);
+    let (outcome, _, _) = result(&out, WATCHER).expect("a result");
+    assert_eq!(outcome, Outcome::Forfeit { seat: 0 });
+    let [host, bot] = lobby_players(&out, WATCHER);
+    assert!(host.is_some() && bot.is_some(), "both still seated");
+    assert!(!room.playing());
+}
+
+/// A bot plays on after winning, like anyone; the host can end it by resigning (the bot's win
+/// stands).
+#[test]
+fn a_bot_plays_on() {
+    let mut room = Room::new(3);
+    hello(&mut room, HOST, "ana", false);
+    hello(&mut room, WATCHER, "cy", true);
+    msg(&mut room, HOST, ToRoom::AddBot { name: "sleve".into() });
+    msg(&mut room, HOST, ToRoom::Ready { ready: true });
+    inputs(&mut room, HOST, 0, 15, 100, true);
+    let out = msg(&mut room, HOST, ToRoom::Inputs { frame: 0, buttons: vec![0; 15], score: 200, over: false, seat: Some(1) });
+    assert_eq!(result(&out, WATCHER), None, "the bot plays on");
+    assert!(to(&out, WATCHER).contains(&FromRoom::Decided { match_id: 1, outcome: Outcome::Win { seat: 1 } }));
+    let out = msg(&mut room, HOST, ToRoom::Resign);
+    assert_eq!(result(&out, WATCHER).expect("over").0, Outcome::Win { seat: 1 });
 }

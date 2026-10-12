@@ -160,7 +160,7 @@ enum LobbyItem {
     Ready,
     RoomSettings,
     Leave,
-    /// On LEAVE's row, in the values' column: the host seats a bot.
+    /// On the empty second player's row, in the values' column: the host seats a bot.
     AddBot,
     Setting(Setting),
     Back,
@@ -176,7 +176,8 @@ impl LobbyItem {
             LobbyItem::Ready => READY_ROW,
             LobbyItem::RoomSettings => ROOM_SETTINGS_ROW,
             LobbyItem::Setting(s) => FIRST_SETTING_ROW + 2 * SETTINGS.iter().position(|&x| x == s).unwrap() as u8,
-            LobbyItem::Leave | LobbyItem::AddBot | LobbyItem::Back => BACK_ROW,
+            LobbyItem::AddBot => PLAYER_ROWS[1],
+            LobbyItem::Leave | LobbyItem::Back => BACK_ROW,
         }
     }
 
@@ -577,7 +578,8 @@ impl Game {
                             let you = if view.seat == Some(i as u8) { " (YOU)" } else { "" };
                             Self::label_value(&format!("{name}{you}"), if *ready { "READY" } else { "" })
                         }
-                        None => Self::label_value("-", ""),
+                        // An empty seat: the host can seat a bot in it.
+                        None => Self::label_value("-", if i == 1 && Self::can_add_bot(view) { "ADD BOT" } else { "" }),
                     };
                     put((row, text));
                 }
@@ -596,9 +598,7 @@ impl Game {
                 if in_room {
                     put((ROOM_SETTINGS_ROW, Self::label_value("ROOM SETTINGS", "")));
                 }
-                // ADD BOT beside LEAVE, in the values' column, for the host while the other seat
-                // is free.
-                put((BACK_ROW, Self::label_value("LEAVE", if Self::can_add_bot(view) { "ADD BOT" } else { "" })));
+                put((BACK_ROW, Self::label_value("LEAVE", "")));
             }
             Page::RoomSettings => {
                 put((HEADER_ROW, Self::centred("ROOM SETTINGS")));
@@ -628,15 +628,15 @@ impl Game {
                     if view.seat == Some(0) && view.players[1].is_some() {
                         items.push(LobbyItem::Opponent);
                     }
+                    if Self::can_add_bot(view) {
+                        items.push(LobbyItem::AddBot);
+                    }
                     items.push(LobbyItem::RoomSettings);
                     if view.seat.is_some() {
                         items.push(LobbyItem::Ready);
                     }
                 }
                 items.push(LobbyItem::Leave);
-                if Self::can_add_bot(view) {
-                    items.push(LobbyItem::AddBot);
-                }
             }
             Page::RoomSettings => {
                 if view.seat == Some(0) {
@@ -742,16 +742,8 @@ impl Game {
                 self.request(VersusRequest::Leave);
                 return;
             } else if has(MenuKey::Up) || has(MenuKey::Down) {
-                // Up and Down skip ADD BOT, on LEAVE's row; Left and Right go between them.
-                let rows: Vec<LobbyItem> = items.iter().copied().filter(|&i| i != LobbyItem::AddBot).collect();
-                let here = rows.iter().position(|&i| i == if at == LobbyItem::AddBot { LobbyItem::Leave } else { at }).unwrap();
-                at = rows[(here + if has(MenuKey::Up) { rows.len() - 1 } else { 1 }) % rows.len()];
-                self.vars.sfx_init[1] = SFX_MENU_OPTION;
-            } else if at == LobbyItem::Leave && has(MenuKey::Right) && items.contains(&LobbyItem::AddBot) {
-                at = LobbyItem::AddBot;
-                self.vars.sfx_init[1] = SFX_MENU_OPTION;
-            } else if at == LobbyItem::AddBot && has(MenuKey::Left) {
-                at = LobbyItem::Leave;
+                let here = items.iter().position(|&i| i == at).unwrap();
+                at = items[(here + if has(MenuKey::Up) { items.len() - 1 } else { 1 }) % items.len()];
                 self.vars.sfx_init[1] = SFX_MENU_OPTION;
             } else if has(MenuKey::Left) || has(MenuKey::Right) || has(MenuKey::Confirm) {
                 match at {
@@ -789,7 +781,10 @@ impl Game {
                 LobbyItem::Opponent => view.players[1].as_ref().map_or(0, |p| p.0.len()),
                 _ => at.label().len(),
             };
-            self.stage_menu_arrows(at.row(), at.col(), len);
+            // A name that runs up to the values' column (ANATOLI (BOT)) leaves no room for the
+            // right-hand arrow.
+            let right = at.col() as usize + len < VALUE_COL as usize - 1;
+            self.stage_arrows(at.row(), at.col(), len, right);
         }
     }
 }

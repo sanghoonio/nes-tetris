@@ -710,13 +710,21 @@ impl Game {
     /// The two arrows either side of `len` characters at (row, col), unless this is the frame
     /// in four they're hidden.
     pub(crate) fn stage_menu_arrows(&mut self, row: u8, col: u8, len: usize) {
+        self.stage_arrows(row, col, len, true);
+    }
+
+    /// As `stage_menu_arrows`, with the right-hand arrow only if `right` (a label that runs up to
+    /// a value has no room for it).
+    pub(crate) fn stage_arrows(&mut self, row: u8, col: u8, len: usize, right: bool) {
         if self.vars.frame_counter.0 as u8 & MENU_CURSOR_MASK == 0 {
             return;
         }
         let y = row * 8 - 1;
         let x = col * 8;
         self.stage_sprite(y, ARROW_TILE, 0, x - 9);
-        self.stage_sprite(y, ARROW_TILE, FLIP_H, x + 8 * len as u8 + 1);
+        if right {
+            self.stage_sprite(y, ARROW_TILE, FLIP_H, x + 8 * len as u8 + 1);
+        }
     }
 
     fn stage_sprite(&mut self, y: u8, tile: u8, attributes: u8, x: u8) {

@@ -14,6 +14,7 @@ pub struct Engine {
     app: App,
     rgba: Vec<u8>,
     width: usize,
+    height: usize,
     samples: Vec<f32>,
 }
 
@@ -28,14 +29,15 @@ impl Engine {
         let settings: Settings = settings.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
         let mut app = App::new(Arc::new(rom), Some(sample_rate), settings, seed.to_bits(), false);
         app.set_versus(Some(server), None);
-        Ok(Engine { app, rgba: vec![], width: 256, samples: vec![] })
+        Ok(Engine { app, rgba: vec![], width: 256, height: 240, samples: vec![] })
     }
 
     /// One frame: the keys held and newly pressed (by `KeyboardEvent.code`, and `PadSouth`-style
     /// names for gamepads), whether the page has the keyboard, and the time in milliseconds.
     pub fn frame(&mut self, held: Vec<String>, pressed: Vec<String>, unfocused: bool, now: f64) {
         let (pixels, samples) = self.app.frame(&Input { held, pressed, unfocused }, now as u64);
-        self.width = pixels.len() / ppu::HEIGHT;
+        self.height = self.app.height();
+        self.width = pixels.len() / self.height;
         self.rgba.clear();
         self.rgba.reserve(pixels.len() * 4);
         for p in pixels {
@@ -45,13 +47,17 @@ impl Engine {
         self.samples.extend(samples);
     }
 
-    /// The last frame's picture: RGBA, `width()` by 240.
+    /// The last frame's picture: RGBA, `width()` by `height()` (taller during a VERSUS match).
     pub fn rgba(&self) -> Vec<u8> {
         self.rgba.clone()
     }
 
     pub fn width(&self) -> usize {
         self.width
+    }
+
+    pub fn height(&self) -> usize {
+        self.height
     }
 
     /// The sound since last asked.

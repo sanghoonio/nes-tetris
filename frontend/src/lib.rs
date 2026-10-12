@@ -71,9 +71,14 @@ impl Default for Options {
 }
 
 pub trait Game {
-    /// Run one frame with `input`. Return the finished picture (NES palette indices, any width ×
-    /// `HEIGHT`, row by row) and its audio (mono, [-1, 1]).
+    /// Run one frame with `input`. Return the finished picture (NES palette indices, row by row,
+    /// `height()` rows of any width) and its audio (mono, [-1, 1]).
     fn frame(&mut self, input: &Input) -> (Vec<u8>, Vec<f32>);
+
+    /// The last picture's height: `HEIGHT`, unless the game says otherwise.
+    fn height(&self) -> usize {
+        HEIGHT
+    }
 
     /// Checked after each frame: close the window.
     fn quit(&self) -> bool {
@@ -107,6 +112,7 @@ pub fn run<G: Game + 'static>(title: &str, options: Options, make_game: impl FnO
         next_frame: Instant::now(),
         frame: vec![0x0F; options.width * HEIGHT],
         width: options.width,
+        height: HEIGHT,
         audio,
         fullscreen: options.fullscreen,
         integer_scale: options.integer_scale,
@@ -129,6 +135,7 @@ struct App<G> {
     next_frame: Instant,
     frame: Vec<u8>,
     width: usize,
+    height: usize,
     audio: Audio,
     fullscreen: bool,
     integer_scale: bool,
@@ -189,11 +196,14 @@ impl<G: Game> ApplicationHandler for App<G> {
             while self.next_frame <= now {
                 let input = self.input();
                 let (frame, samples) = self.game.frame(&input);
-                let width = frame.len() / HEIGHT;
+                let height = self.game.height();
+                let width = frame.len() / height;
                 self.frame = frame;
-                if width != self.width {
+                if (width, height) != (self.width, self.height) {
+                    let was = self.height;
                     self.width = width;
-                    self.fit_window();
+                    self.height = height;
+                    self.fit_window(was);
                 }
                 self.audio.push(&samples);
                 self.next_frame += FRAME_TIME;
@@ -219,24 +229,43 @@ impl<G: Game> ApplicationHandler for App<G> {
 }
 
 impl<G> App<G> {
-    /// After the picture's width changed: resize the window to keep its height (so its scale),
-    /// narrowing everything if that would be wider than the display. Fullscreen or maximised
-    /// windows stay as they are; the picture fits inside.
-    fn fit_window(&self) {
+    /// After the picture's size changed (it was `was` high): resize the window to keep its scale,
+    /// smaller if that wouldn't fit the monitor, and move it if it would run off the monitor's
+    /// edge. Fullscreen or maximised windows stay as they are; the picture fits inside.
+    fn fit_window(&self, was: usize) {
         let Some(w) = &self.window else { return };
         if self.fullscreen || w.is_maximized() {
             return;
         }
         let size = w.inner_size();
-        let (mut width, mut height) = (self.width as f64 * size.height as f64 / HEIGHT as f64, size.height as f64);
-        if let Some(monitor) = w.current_monitor() {
-            let room = monitor.size().width as f64 * 0.95;
-            if width > room {
-                height *= room / width;
-                width = room;
+        let scale = size.height as f64 / was as f64;
+        let (mut width, mut height) = (self.width as f64 * scale, self.height as f64 * scale);
+        // The title bar and borders, which the window's position includes.
+        let outer = w.outer_size();
+        let (frame_w, frame_h) = (outer.width.saturating_sub(size.width) as f64, outer.height.saturating_sub(size.height) as f64);
+        let monitor = w.current_monitor();
+        if let Some(m) = &monitor {
+            // No bigger than most of the monitor (it doesn't say where the menu bar or taskbar is).
+            let room = ((m.size().width as f64 * 0.95 - frame_w) / width).min((m.size().height as f64 * 0.95 - frame_h) / height);
+            if room < 1.0 {
+                width *= room;
+                height *= room;
             }
         }
         let _ = w.request_inner_size(winit::dpi::PhysicalSize::new(width as u32, height as u32));
+        // Grown past the monitor's right or bottom edge: move it back on, no further than its
+        // top-left corner. (Where a window may not know or set its position, as on Wayland, it
+        // stays put.)
+        if let (Some(m), Ok(at)) = (monitor, w.outer_position()) {
+            let (mx, my) = (m.position().x as f64, m.position().y as f64);
+            let (mw, mh) = (m.size().width as f64, m.size().height as f64);
+            let (ow, oh) = (width + frame_w, height + frame_h);
+            let x = (at.x as f64).min(mx + mw - ow).max(mx);
+            let y = (at.y as f64).min(my + mh - oh).max(my);
+            if (x as i32, y as i32) != (at.x, at.y) {
+                w.set_outer_position(winit::dpi::PhysicalPosition::new(x as i32, y as i32));
+            }
+        }
     }
 
     fn apply_fullscreen(&self) {
@@ -296,16 +325,17 @@ impl<G> App<G> {
         // Nearest-neighbour scale to fit the window (whole numbers only with `integer_scale`),
         // letterboxed to keep the aspect.
         let width = self.width;
-        let mut scale = (w as f32 / width as f32).min(h as f32 / HEIGHT as f32);
+        let height = self.height;
+        let mut scale = (w as f32 / width as f32).min(h as f32 / height as f32);
         if self.integer_scale && scale >= 1.0 {
             scale = scale.floor();
         }
-        let (ow, oh) = ((width as f32 * scale) as usize, (HEIGHT as f32 * scale) as usize);
+        let (ow, oh) = ((width as f32 * scale) as usize, (height as f32 * scale) as usize);
         let (x0, y0) = ((w - ow) / 2, (h - oh) / 2);
         buf.fill(0);
         for y in 0..oh {
             let sy = (y as f32 / scale) as usize;
-            let src = &self.frame[sy.min(HEIGHT - 1) * width..][..width];
+            let src = &self.frame[sy.min(height - 1) * width..][..width];
             let dst = &mut buf[(y0 + y) * w + x0..][..ow];
             for (x, px) in dst.iter_mut().enumerate() {
                 let sx = ((x as f32 / scale) as usize).min(width - 1);
