@@ -118,16 +118,23 @@ pub struct RoomObject {
 impl RoomObject {
     /// Feed `event` to the room, send what it says, and save it between matches.
     async fn run(&self, event: Event) -> Result<()> {
+        let mut sends = vec![];
         if self.room.borrow().is_none() {
             let saved: Option<Room> = self.state.storage().get("room").await?;
-            let room = saved.unwrap_or_else(|| Room::new((random() * 9e15) as u64));
+            let mut room = saved.unwrap_or_else(|| Room::new((random() * 9e15) as u64));
+            // Restarted (a deploy drops every socket): whoever the room remembers with no socket
+            // has left.
+            let live: Vec<ConnId> = self.state.get_websockets().iter().filter_map(Self::conn).collect();
+            for conn in room.connections().into_iter().filter(|c| !live.contains(c)) {
+                sends.extend(room.handle(now(), Event::Left(conn)));
+            }
             *self.room.borrow_mut() = Some(room);
         }
-        let (sends, save) = {
+        let save = {
             let mut room = self.room.borrow_mut();
             let room = room.as_mut().unwrap();
-            let sends = room.handle(now(), event);
-            (sends, (!room.playing()).then(|| room.clone()))
+            sends.extend(room.handle(now(), event));
+            (!room.playing()).then(|| room.clone())
         };
         let sockets: Vec<(ConnId, WebSocket)> = self
             .state
@@ -272,18 +279,12 @@ impl DurableObject for RoomObject {
         Ok(ResponseBuilder::new().with_status(101).with_websocket(pair.client).empty())
     }
 
-    /// The refresh: close silent connections, check a match's clock, then tell the directory
-    /// again (the room is loaded first, if it slept).
+    /// The refresh: load the room if it slept (letting go of anyone without a socket) and check a
+    /// match's clock, in case nobody's sending; close silent connections; then tell the directory
+    /// again.
     async fn alarm(&self) -> Result<Response> {
-        if self.room.borrow().is_none() {
-            let saved: Option<Room> = self.state.storage().get("room").await?;
-            *self.room.borrow_mut() = saved;
-        }
+        self.run(Event::Tick).await?;
         self.sweep().await?;
-        // A match's clock, in case nobody's sending (each message checks it too).
-        if self.room.borrow().as_ref().is_some_and(Room::playing) {
-            self.run(Event::Tick).await?;
-        }
         self.report(true).await?;
         Response::ok("")
     }

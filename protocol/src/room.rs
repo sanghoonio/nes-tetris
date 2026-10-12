@@ -143,6 +143,11 @@ impl Room {
         })
     }
 
+    /// Every connection the room has, said `Hello` or not.
+    pub fn connections(&self) -> Vec<ConnId> {
+        self.conns().into_iter().chain(self.pending.iter().copied()).collect()
+    }
+
     /// Whether anyone is connected.
     pub fn empty(&self) -> bool {
         self.conns().is_empty() && self.pending.is_empty()
