@@ -39,7 +39,7 @@ const STATUS_ROWS: [u8; 2] = [6, 7];
 const PLAYER_ROWS: [u8; 2] = [9, 11];
 const WATCHING_ROW: u8 = 13;
 /// The series' lines: under the players, or under the watching count when there is one.
-const SERIES_ROWS: [u8; 2] = [14, 15];
+const SERIES_ROWS: [u8; 2] = [16, 17];
 const ROOM_SETTINGS_ROW: u8 = 19;
 const READY_ROW: u8 = 21;
 /// The ROOM SETTINGS page: the settings double-spaced from row 6, a line for those who can't
