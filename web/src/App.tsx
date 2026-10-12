@@ -90,7 +90,7 @@ function RomPage({ onRom, links }: { onRom: (rom: Uint8Array) => void; links: Re
   );
 }
 
-/// What this is, the keys, and where the source is. Escape or a click outside closes it.
+/// What this is, the keys, and where the source is. BACK, Escape or a click outside closes it.
 function Info({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     const key = (e: KeyboardEvent) => e.code === "Escape" && onClose();
@@ -100,7 +100,7 @@ function Info({ onClose }: { onClose: () => void }) {
   return (
     <div className="screen modal" onClick={onClose}>
       <div className="panel info" onClick={(e) => e.stopPropagation()}>
-        <p>NES Tetris, rebuilt in Rust, running from your own ROM. The ROM stays in this browser.</p>
+        <p>NES Tetris, rebuilt in Rust, using assets from your own ROM. The ROM stays in this browser.</p>
         <p>Arrows move, X and Z rotate, Enter chooses, Escape goes back and pauses. Keys can be changed under Settings.</p>
         <p>Versus plays others online, on the web or the desktop app.</p>
         <p>
@@ -109,7 +109,7 @@ function Info({ onClose }: { onClose: () => void }) {
             github.com/sanghoonio/nes-tetris
           </a>
         </p>
-        <button onClick={onClose}>Close</button>
+        <button onClick={onClose}>Back</button>
       </div>
     </div>
   );
