@@ -9,11 +9,11 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use netplay::{Link, LinkEvent, Note, Phase, Session, HEIGHT, WIDTH};
+use netplay::{Link, LinkEvent, Note, Phase, RoomList as ListLink, Session, HEIGHT, WIDTH};
 use protocol::{Outcome, Pieces, Settings};
 use tetris_rs::options::LeftRight;
 use tetris_rs::pc_input::play_buttons;
-use tetris_rs::versus::{draw_glyphs, draw_text, Connection, RoomSettings, VersusRequest, VersusView, BLACK, WHITE};
+use tetris_rs::versus::{draw_glyphs, draw_text, Connection, ListedRoom, ListedState, RoomList, RoomSettings, VersusRequest, VersusView, BLACK, WHITE};
 use tetris_rs::{Config, Rom};
 
 use crate::backdrop::{self, Backdrop};
@@ -107,6 +107,9 @@ pub struct Versus {
     room: Option<Room>,
     /// A connection that failed or ended, until the player leaves the lobby.
     lost: Option<String>,
+    /// The list of public rooms, while JOIN or WATCH is up, and the latest of it.
+    list: Option<ListLink>,
+    rooms: RoomList,
     /// The game screen's box cells, and the match picture's background.
     boxes: [[bool; 32]; 30],
     backdrop: Backdrop,
@@ -154,7 +157,7 @@ impl Versus {
             (0..2).any(|i| (board_col(i)..board_col(i) + BOARD_COLS).contains(&c) && source_cell(r, c - board_col(i)).is_some_and(|(sr, sc)| boxes[sr][sc]))
         });
         let empty = backdrop::empty_game_screen(&rom);
-        Versus { rom, sample_rate, start: Instant::now(), server, name, music: 0, room: None, lost: None, boxes, backdrop, empty }
+        Versus { rom, sample_rate, start: Instant::now(), server, name, music: 0, room: None, lost: None, list: None, rooms: RoomList::Closed, boxes, backdrop, empty }
     }
 
     fn now(&self) -> u64 {
@@ -175,6 +178,18 @@ impl Versus {
     /// Take what the room said since the last frame.
     pub fn poll(&mut self) {
         let now = self.now();
+        if let Some(list) = self.list.as_mut() {
+            self.rooms = match list.latest() {
+                None => RoomList::Loading,
+                Some(Err(why)) => {
+                    if self.rooms != RoomList::Unreachable {
+                        eprintln!("versus: {why}");
+                    }
+                    RoomList::Unreachable
+                }
+                Some(Ok(rooms)) => RoomList::Rooms(rooms.iter().map(listed).collect()),
+            };
+        }
         let Some(room) = self.room.as_mut() else { return };
         while let Ok(event) = room.link.rx.try_recv() {
             match event {
@@ -205,6 +220,7 @@ impl Versus {
                     None => Connection::None,
                 },
                 settings: room_settings,
+                rooms: self.rooms.clone(),
                 ..Default::default()
             };
         };
@@ -244,6 +260,7 @@ impl Versus {
             settings: from_protocol(&s.settings()),
             status,
             series,
+            rooms: self.rooms.clone(),
         }
     }
 
@@ -272,6 +289,10 @@ impl Versus {
             VersusRequest::Leave => {
                 self.room = None;
                 self.lost = None;
+            }
+            VersusRequest::ListRooms(open) => {
+                self.list = open.then(|| ListLink::open(&self.server));
+                self.rooms = if open { RoomList::Loading } else { RoomList::Closed };
             }
             VersusRequest::SetName(name) => {
                 let name = protocol::clean_name(&name);
@@ -500,6 +521,20 @@ fn random() -> u64 {
     (t.as_nanos() as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ std::process::id() as u64
 }
 
+fn listed(r: &protocol::RoomSummary) -> ListedRoom {
+    ListedRoom {
+        code: r.code.clone(),
+        host: r.host.clone(),
+        players: r.players,
+        level: r.level,
+        state: match r.state {
+            protocol::RoomState::Open => ListedState::Open,
+            protocol::RoomState::Full => ListedState::Full,
+            protocol::RoomState::Playing => ListedState::Playing,
+        },
+    }
+}
+
 fn to_protocol(s: &RoomSettings) -> Settings {
     Settings {
         level: s.level,
@@ -516,6 +551,7 @@ fn to_protocol(s: &RoomSettings) -> Settings {
             ghost: s.ghost,
             next_piece: s.next_piece,
         },
+        public: s.public,
     }
 }
 
@@ -533,5 +569,6 @@ fn from_protocol(s: &Settings) -> RoomSettings {
         hard_drop: s.rules.hard_drop,
         ghost: s.rules.ghost,
         next_piece: s.rules.next_piece,
+        public: s.public,
     }
 }

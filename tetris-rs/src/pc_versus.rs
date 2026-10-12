@@ -11,7 +11,9 @@ use crate::flow::{CHR_TITLE_MENU, SFX_MENU_OPTION, SFX_MENU_SCREEN};
 use crate::options::LeftRight;
 use crate::pc_input::{MenuKey, Screen};
 use crate::pc_menus::{BACK_ROW, HALF, INNER, LABEL_COL, RENDER_SETTINGS, VALUE_COL, VALUE_WIDTH};
-use crate::versus::{Connection, RoomSettings, VersusRequest, VersusView, CODE_LEN, CODE_LETTERS, NAME_LEN};
+use crate::versus::{
+    Connection, ListedRoom, ListedState, RoomList, RoomSettings, VersusRequest, VersusView, CODE_LEN, CODE_LETTERS, NAME_LEN,
+};
 use crate::{layout, Game};
 
 const HEADER_ROW: u8 = 4;
@@ -33,6 +35,12 @@ const MENU: [(MenuItem, &str, u8); 5] = [
     (MenuItem::Back, "BACK", BACK_ROW),
 ];
 
+/// The JOIN and WATCH lists: a room on each of these rows, which of them are showing when there
+/// are more, ENTER A CODE, and BACK on `BACK_ROW`.
+const LIST_ROWS: [u8; 7] = [6, 8, 10, 12, 14, 16, 18];
+const SHOWING_ROW: u8 = 20;
+const CODE_ROW: u8 = 23;
+
 /// The lobby's rows under the room code: the status, the players, the series, ROOM SETTINGS,
 /// READY, and LEAVE on `BACK_ROW`.
 const STATUS_ROWS: [u8; 2] = [6, 7];
@@ -45,7 +53,7 @@ const READY_ROW: u8 = 21;
 /// The ROOM SETTINGS page: the settings double-spaced from row 6, a line for those who can't
 /// change them, and BACK on `BACK_ROW`.
 const FIRST_SETTING_ROW: u8 = 6;
-const HOST_ONLY_ROW: u8 = 23;
+const HOST_ONLY_ROW: u8 = 24;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Setting {
@@ -57,9 +65,10 @@ enum Setting {
     HardDrop,
     Ghost,
     NextPiece,
+    Public,
 }
 
-const SETTINGS: [Setting; 8] = [
+const SETTINGS: [Setting; 9] = [
     Setting::Level,
     Setting::Pieces,
     Setting::DasDelay,
@@ -68,6 +77,7 @@ const SETTINGS: [Setting; 8] = [
     Setting::HardDrop,
     Setting::Ghost,
     Setting::NextPiece,
+    Setting::Public,
 ];
 
 impl Setting {
@@ -81,6 +91,7 @@ impl Setting {
             Setting::HardDrop => "HARD DROP",
             Setting::Ghost => "GHOST",
             Setting::NextPiece => "NEXT PIECE",
+            Setting::Public => "PUBLIC",
         }
     }
 
@@ -100,6 +111,7 @@ impl Setting {
             Setting::HardDrop => on_off(s.hard_drop),
             Setting::Ghost => on_off(s.ghost),
             Setting::NextPiece => if s.next_piece { "SHOW" } else { "HIDE" }.to_string(),
+            Setting::Public => on_off(s.public),
         }
     }
 
@@ -128,6 +140,7 @@ impl Setting {
             Setting::HardDrop => s.hard_drop = !s.hard_drop,
             Setting::Ghost => s.ghost = !s.ghost,
             Setting::NextPiece => s.next_piece = !s.next_piece,
+            Setting::Public => s.public = !s.public,
         }
     }
 }
@@ -280,7 +293,7 @@ impl Game {
                         }
                         MenuItem::Join | MenuItem::Watch => {
                             let watch = MENU[cursor].0 == MenuItem::Watch;
-                            if let Some(code) = self.code_entry(watch).await {
+                            if let Some(code) = self.room_list(watch).await {
                                 self.request(if watch { VersusRequest::Watch(code) } else { VersusRequest::Join(code) });
                                 self.lobby().await;
                             }
@@ -326,6 +339,158 @@ impl Game {
             }
         }
         false
+    }
+
+    /// JOIN or WATCH: the list of public rooms (JOIN, those with a seat free; WATCH, all, matches
+    /// on first), then ENTER A CODE and BACK. The list comes from the app while this is up.
+    /// Returns the room chosen, or none if backed out of.
+    async fn room_list(&mut self, watch: bool) -> Option<String> {
+        self.request(VersusRequest::ListRooms(true));
+        let chosen = self.room_list_screen(watch).await;
+        self.request(VersusRequest::ListRooms(false));
+        chosen
+    }
+
+    /// The rooms JOIN or WATCH shows, from the app's list.
+    fn listed(view: &VersusView, watch: bool) -> Vec<ListedRoom> {
+        let RoomList::Rooms(rooms) = &view.rooms else { return vec![] };
+        let mut rooms: Vec<ListedRoom> = rooms.iter().filter(|r| watch || r.state == ListedState::Open).cloned().collect();
+        if watch {
+            rooms.sort_by_key(|r| r.state != ListedState::Playing);
+        }
+        rooms
+    }
+
+    /// Every line inside the panel for the list (`top` is the first room shown), blank rows
+    /// included.
+    fn room_list_lines(view: &VersusView, watch: bool, rooms: &[ListedRoom], top: usize) -> Vec<(u8, String)> {
+        let mut lines: Vec<(u8, String)> = (HEADER_ROW..=BACK_ROW).map(|row| (row, Self::label_value("", ""))).collect();
+        let mut put = |row: u8, text: String| lines[(row - HEADER_ROW) as usize].1 = text;
+        put(HEADER_ROW, Self::centred(if watch { "WATCH" } else { "JOIN" }));
+        let message = match &view.rooms {
+            RoomList::Closed | RoomList::Loading => Some("LOOKING FOR ROOMS"),
+            RoomList::Unreachable => Some("CAN NOT REACH THE SERVER"),
+            RoomList::Rooms(_) if rooms.is_empty() => Some(if watch { "NO ROOMS YET" } else { "NO OPEN ROOMS" }),
+            RoomList::Rooms(_) => None,
+        };
+        if let Some(message) = message {
+            put(LIST_ROWS[0], Self::centred(message));
+        }
+        for (room, row) in rooms.iter().skip(top).zip(LIST_ROWS) {
+            let at = (LABEL_COL - INNER.0) as usize;
+            put(row, format!("{:<1$}", format!("{:at$}{}", "", Self::room_text(room, watch)), INNER.1));
+        }
+        // Which are showing, when they don't all fit.
+        if rooms.len() > LIST_ROWS.len() {
+            let last = (top + LIST_ROWS.len()).min(rooms.len());
+            put(SHOWING_ROW, Self::centred(&format!("ROOMS {}-{} OF {}", top + 1, last, rooms.len())));
+        }
+        put(CODE_ROW, Self::label_value("ENTER A CODE", ""));
+        put(BACK_ROW, Self::label_value("BACK", ""));
+        lines
+    }
+
+    /// A room's row: host, players, level, and in WATCH its state.
+    fn room_text(room: &ListedRoom, watch: bool) -> String {
+        let mut text = format!("{:<8} {}/2 LV{:02}", room.host, room.players, room.level);
+        if watch {
+            text.push(' ');
+            text.push_str(match room.state {
+                ListedState::Open => "OPEN",
+                ListedState::Full => "FULL",
+                ListedState::Playing => "LIVE",
+            });
+        }
+        text
+    }
+
+    async fn room_list_screen(&mut self, watch: bool) -> Option<String> {
+        /// Where the cursor is: on a room (by code, as the list moves), ENTER A CODE, or BACK.
+        #[derive(Clone, PartialEq)]
+        enum At {
+            Room(String),
+            Code,
+            Back,
+        }
+        let mut at = At::Back;
+        let mut moved = false;
+        let mut index = 0usize;
+        let mut top = 0usize;
+        'screen: loop {
+            self.versus_panel().await;
+            let view = self.view();
+            let rooms = Self::listed(&view, watch);
+            let mut shown = Self::room_list_lines(&view, watch, &rooms, top);
+            for (row, text) in &shown {
+                self.put_text(*row, INNER.0, text);
+            }
+            self.show_screen().await;
+            self.memset_page(0x00, 0x02, 0x02);
+            loop {
+                self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
+                let view = self.view();
+                let rooms = Self::listed(&view, watch);
+                // The cursor's place in rooms, ENTER A CODE, BACK; a room that's gone leaves it
+                // where it was.
+                let count = rooms.len() + 2;
+                index = match &at {
+                    At::Room(code) => rooms.iter().position(|r| &r.code == code).unwrap_or(index.min(count - 1)),
+                    At::Code => rooms.len(),
+                    At::Back => rooms.len() + 1,
+                };
+                // Until the player moves it, the cursor goes to the first room once there is one.
+                if !moved && at == At::Back && !rooms.is_empty() {
+                    index = 0;
+                }
+                let keys = self.menu_pressed();
+                let has = |k| keys.contains(&k);
+                if has(MenuKey::Up) || has(MenuKey::Down) {
+                    moved = true;
+                    index = (index + if has(MenuKey::Up) { count - 1 } else { 1 }) % count;
+                    self.vars.sfx_init[1] = SFX_MENU_OPTION;
+                }
+                at = match index {
+                    i if i < rooms.len() => At::Room(rooms[i].code.clone()),
+                    i if i == rooms.len() => At::Code,
+                    _ => At::Back,
+                };
+                // Keep the cursor's room in view.
+                if index < rooms.len() {
+                    top = top.min(index).max((index + 1).saturating_sub(LIST_ROWS.len()));
+                }
+                top = top.min(rooms.len().saturating_sub(LIST_ROWS.len()));
+                let lines = Self::room_list_lines(&view, watch, &rooms, top);
+                for (line, old) in lines.iter().zip(&shown) {
+                    if line != old {
+                        self.queue_text(line.0, INNER.0, &line.1);
+                    }
+                }
+                shown = lines;
+                if has(MenuKey::Back) || (has(MenuKey::Confirm) && at == At::Back) {
+                    self.vars.sfx_init[1] = SFX_MENU_SCREEN;
+                    return None;
+                }
+                if has(MenuKey::Confirm) {
+                    self.vars.sfx_init[1] = SFX_MENU_SCREEN;
+                    match &at {
+                        At::Room(code) => return Some(code.clone()),
+                        At::Code => {
+                            if let Some(code) = self.code_entry(watch).await {
+                                return Some(code);
+                            }
+                            continue 'screen;
+                        }
+                        At::Back => unreachable!(),
+                    }
+                }
+                let (row, len) = match &at {
+                    At::Room(_) => (LIST_ROWS[index - top], Self::room_text(&rooms[index], watch).len()),
+                    At::Code => (CODE_ROW, "ENTER A CODE".len()),
+                    At::Back => (BACK_ROW, "BACK".len()),
+                };
+                self.stage_menu_arrows(row, LABEL_COL, len);
+            }
+        }
     }
 
     /// Typing a room code: four letters. None if backed out of.

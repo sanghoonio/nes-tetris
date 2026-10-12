@@ -66,6 +66,7 @@ impl Room {
             hard_drop: self.hard_drop,
             ghost: self.ghost,
             next_piece: self.next_piece,
+            public: self.public,
         }
     }
 
@@ -84,6 +85,7 @@ impl Room {
             hard_drop: r.hard_drop,
             ghost: r.ghost,
             next_piece: r.next_piece,
+            public: r.public,
         }
     }
 }
@@ -102,6 +104,8 @@ pub struct Room {
     pub hard_drop: bool,
     pub ghost: bool,
     pub next_piece: bool,
+    /// Listed under JOIN and WATCH.
+    pub public: bool,
 }
 
 impl Default for Room {
@@ -116,6 +120,7 @@ impl Default for Room {
             hard_drop: false,
             ghost: false,
             next_piece: true,
+            public: true,
         }
     }
 }

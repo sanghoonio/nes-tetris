@@ -44,6 +44,43 @@ pub struct VersusView {
     /// The players' matches here so far: the score between them ("ANA 1 - 0 BO"), or who of
     /// them left. One or two lines, or none.
     pub series: Vec<String>,
+    /// The list of public rooms, while JOIN or WATCH has asked for it.
+    pub rooms: RoomList,
+}
+
+/// The list of public rooms, as the app has it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum RoomList {
+    /// Not asked for.
+    #[default]
+    Closed,
+    /// Asked for; nothing heard yet.
+    Loading,
+    /// Newest first.
+    Rooms(Vec<ListedRoom>),
+    /// The server couldn't be reached, or the connection ended.
+    Unreachable,
+}
+
+/// A room in the list.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ListedRoom {
+    pub code: String,
+    pub host: String,
+    /// Seats taken, of two.
+    pub players: u8,
+    pub level: u8,
+    pub state: ListedState,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ListedState {
+    /// A seat is free.
+    Open,
+    /// Both seats taken, between matches.
+    Full,
+    /// A match is on.
+    Playing,
 }
 
 /// What the player asked for this frame.
@@ -57,6 +94,8 @@ pub enum VersusRequest {
     Settings(RoomSettings),
     Leave,
     SetName(String),
+    /// JOIN or WATCH opened (true) or closed (false): keep the list of rooms coming meanwhile.
+    ListRooms(bool),
 }
 
 /// A room's settings (as `protocol::Settings`): the host's choice, A-type.
@@ -72,6 +111,8 @@ pub struct RoomSettings {
     pub hard_drop: bool,
     pub ghost: bool,
     pub next_piece: bool,
+    /// Listed under JOIN and WATCH; otherwise reached by code only.
+    pub public: bool,
 }
 
 impl Default for RoomSettings {
@@ -86,6 +127,7 @@ impl Default for RoomSettings {
             hard_drop: false,
             ghost: false,
             next_piece: true,
+            public: true,
         }
     }
 }

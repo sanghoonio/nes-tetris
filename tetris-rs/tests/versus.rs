@@ -6,7 +6,7 @@
 #![cfg(feature = "versus")]
 
 use std::sync::Arc;
-use tetris_rs::versus::{Connection, RoomSettings, VersusRequest, VersusView};
+use tetris_rs::versus::{Connection, ListedRoom, ListedState, RoomList, RoomSettings, VersusRequest, VersusView};
 use tetris_rs::{Config, FrameOut, Keys, Options, Rom, Runner, Vars};
 
 struct App {
@@ -109,6 +109,7 @@ fn in_room(seat: Option<u8>) -> VersusView {
         settings: RoomSettings::default(),
         status: "WAITING FOR READY".into(),
         series: vec!["ANA 2 - 1 BO".into()],
+        rooms: RoomList::Closed,
     }
 }
 
@@ -254,6 +255,10 @@ fn joining_by_code() {
     let mut app = at_versus_menu();
     app.tap("ArrowDown", 3);
     app.tap("Enter", 20);
+    assert_eq!(app.take(), vec![VersusRequest::ListRooms(true)]);
+    // No list yet: the cursor is on BACK; ENTER A CODE is above it.
+    app.tap("ArrowUp", 3);
+    app.tap("Enter", 20);
     // I and O aren't in codes; Enter needs all four letters.
     app.typed("KIQ");
     app.tap("Enter", 2);
@@ -261,7 +266,7 @@ fn joining_by_code() {
     app.typed("OXR");
     app.shot("join_code");
     app.tap("Enter", 2);
-    assert_eq!(app.take(), vec![VersusRequest::Join("KQXR".into())]);
+    assert_eq!(app.take(), vec![VersusRequest::ListRooms(false), VersusRequest::Join("KQXR".into())]);
     app.view = in_room(Some(1));
     app.idle(20);
     app.shot("lobby_opponent");
@@ -286,13 +291,74 @@ fn watching() {
     app.tap("ArrowDown", 3);
     app.tap("ArrowDown", 3);
     app.tap("Enter", 20);
+    app.tap("ArrowUp", 3);
+    app.tap("Enter", 20);
     app.typed("KQXR");
     app.tap("Enter", 2);
-    assert_eq!(app.take(), vec![VersusRequest::Watch("KQXR".into())]);
+    assert_eq!(app.take(), vec![VersusRequest::ListRooms(true), VersusRequest::ListRooms(false), VersusRequest::Watch("KQXR".into())]);
     app.view = in_room(None);
     app.idle(20);
     app.shot("lobby_watching");
     // The cursor starts on LEAVE.
     app.tap("Enter", 2);
     assert_eq!(app.take(), vec![VersusRequest::Leave]);
+}
+
+fn rooms() -> RoomList {
+    let room = |code: &str, host: &str, players, level, state| ListedRoom { code: code.into(), host: host.into(), players, level, state };
+    let mut rooms = vec![
+        room("AAAA", "ANA", 1, 18, ListedState::Open),
+        room("BBBB", "BO", 2, 15, ListedState::Full),
+        room("CCCC", "CY", 2, 19, ListedState::Playing),
+    ];
+    for (i, name) in ["DEE", "ED", "FAY", "GUS", "HAL", "IVY", "JO"].into_iter().enumerate() {
+        rooms.push(room(&format!("D{}AA", (b'A' + i as u8) as char), name, 1, i as u8, ListedState::Open));
+    }
+    RoomList::Rooms(rooms)
+}
+
+/// JOIN lists the rooms with a seat free, newest first; the cursor starts on the first; the list
+/// scrolls; Enter joins.
+#[test]
+fn join_list() {
+    let mut app = at_versus_menu();
+    app.tap("ArrowDown", 3);
+    app.tap("Enter", 5);
+    app.idle(10);
+    app.shot("join_loading");
+    app.view.rooms = rooms();
+    app.idle(5);
+    app.shot("join_list");
+    assert_eq!(app.take(), vec![VersusRequest::ListRooms(true)]);
+    // Eight open rooms (seven show at a time): ANA and seven more; down to the eighth (JO).
+    for _ in 0..7 {
+        app.tap("ArrowDown", 2);
+    }
+    app.shot("join_list_scrolled");
+    app.tap("Enter", 2);
+    assert_eq!(app.take(), vec![VersusRequest::ListRooms(false), VersusRequest::Join("DGAA".into())]);
+}
+
+/// WATCH lists every room, matches on first; Enter watches; BACK returns to the menu.
+#[test]
+fn watch_list() {
+    let mut app = at_versus_menu();
+    app.tap("ArrowDown", 3);
+    app.tap("ArrowDown", 3);
+    app.tap("Enter", 5);
+    app.view.rooms = rooms();
+    app.idle(5);
+    app.shot("watch_list");
+    app.tap("Enter", 2);
+    assert_eq!(app.take(), vec![VersusRequest::ListRooms(true), VersusRequest::ListRooms(false), VersusRequest::Watch("CCCC".into())]);
+    // Out of the room (back on the VERSUS menu, still on WATCH), WATCH again, then BACK.
+    app.idle(20);
+    app.tap("Escape", 20);
+    assert_eq!(app.take(), vec![VersusRequest::Leave]);
+    app.view.rooms = RoomList::Rooms(vec![]);
+    app.tap("Enter", 5);
+    app.idle(5);
+    app.shot("watch_empty");
+    app.tap("Escape", 5);
+    assert_eq!(app.take(), vec![VersusRequest::ListRooms(true), VersusRequest::ListRooms(false)]);
 }

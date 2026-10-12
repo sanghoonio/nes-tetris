@@ -127,8 +127,10 @@ tops out, the other plays on until they pass that score or top out too. Others c
 
 (For the Mac app: `desktop/macos/bundle.sh --versus --install`.)
 
-**Playing:** HOST makes a room and shows its four-letter code; the other player chooses JOIN
-and types it, and anyone else can WATCH with it. The host sets the level, SAME SEED (both players get
+**Playing:** HOST makes a room. JOIN lists the rooms with a seat free and WATCH lists every
+room, matches being played included; choose one, or ENTER A CODE for a room that isn't listed
+(the room code is at the top of its lobby; PUBLIC OFF under ROOM SETTINGS keeps a room off the
+lists). The host sets the level, SAME SEED (both players get
 the same pieces; on unless turned off) and the rules (DAS, hard drop, ghost and so on) under ROOM
 SETTINGS in the room, where the others can look but not change them; both players
 choose READY and the match starts after a countdown. The window widens to show both games side by

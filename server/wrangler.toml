@@ -6,9 +6,16 @@ compatibility_date = "2026-10-01"
 command = "cargo install -q \"worker-build@^0.8\" && worker-build --release"
 
 [durable_objects]
-bindings = [{ name = "ROOMS", class_name = "RoomObject" }]
+bindings = [
+  { name = "ROOMS", class_name = "RoomObject" },
+  { name = "DIRECTORY", class_name = "DirectoryObject" },
+]
 
 # The free plan has SQLite-backed Durable Objects only.
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["RoomObject"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["DirectoryObject"]

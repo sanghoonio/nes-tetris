@@ -10,8 +10,10 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod directory;
 pub mod room;
 
+pub use directory::Directory;
 pub use room::{Event, Room, Send};
 
 /// A connection, numbered by whoever runs the room.
@@ -98,11 +100,18 @@ pub struct Settings {
     pub level: u8,
     pub pieces: Pieces,
     pub rules: Rules,
+    /// Whether the room is in the list of rooms (`directory`); otherwise it's reached by code only.
+    #[serde(default = "listed")]
+    pub public: bool,
+}
+
+fn listed() -> bool {
+    true
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { level: 18, pieces: Pieces::Identical, rules: Rules::default() }
+        Settings { level: 18, pieces: Pieces::Identical, rules: Rules::default(), public: true }
     }
 }
 
@@ -175,6 +184,48 @@ pub fn clean_name(name: &str) -> String {
     let name: String = words.join(" ").chars().take(NAME_LEN).collect();
     let name = name.trim_end().to_string();
     if name.is_empty() { "PLAYER".to_string() } else { name }
+}
+
+/// A room as the list of rooms shows it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoomSummary {
+    pub code: String,
+    /// The host's name.
+    pub host: String,
+    /// Seats taken (a player who left during a match keeps theirs until it ends).
+    pub players: u8,
+    pub spectators: u32,
+    pub level: u8,
+    pub same_seed: bool,
+    pub state: RoomState,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RoomState {
+    /// A seat is free.
+    Open,
+    /// Both seats taken, between matches.
+    Full,
+    /// A match is on.
+    Playing,
+}
+
+/// The list of rooms, to a client watching it (`/rooms`): the whole list, newest room first, on
+/// connecting and whenever it changes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum FromDirectory {
+    Rooms { rooms: Vec<RoomSummary> },
+}
+
+impl FromDirectory {
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).expect("messages serialise")
+    }
+
+    pub fn from_json(s: &str) -> Option<Self> {
+        serde_json::from_str(s).ok()
+    }
 }
 
 impl ToRoom {

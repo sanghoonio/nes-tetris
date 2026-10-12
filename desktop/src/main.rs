@@ -207,7 +207,7 @@ fn main() {
 mod tests {
     use super::*;
     use std::time::{Duration, Instant};
-    use tetris_rs::versus::Connection;
+    use tetris_rs::versus::{Connection, ListedState, RoomList};
 
     struct Copy {
         app: Readable,
@@ -290,10 +290,16 @@ mod tests {
             self.tap("Enter", 20);
         }
 
-        fn type_code(&mut self, code: &str) {
-            for c in code.chars() {
-                self.tap(&format!("Key{c}"), 2);
+        /// On JOIN or WATCH: wait for the room `code` to be listed (it's the only room, so the
+        /// cursor lands on it), then choose it.
+        fn choose(&mut self, code: &str) {
+            let start = Instant::now();
+            while !matches!(&self.view().rooms, RoomList::Rooms(r) if r.iter().any(|r| r.code == code)) {
+                assert!(start.elapsed() < Duration::from_secs(5), "{code} never listed: {:?}", self.view().rooms);
+                self.idle(1);
+                std::thread::sleep(Duration::from_millis(2));
             }
+            self.idle(3);
             self.tap("Enter", 5);
         }
     }
@@ -353,10 +359,10 @@ mod tests {
 
         let mut joiner = Copy::new(&server, "BO");
         joiner.open_versus(1);
-        joiner.type_code(&code);
+        joiner.choose(&code);
         let mut watcher = Copy::new(&server, "CY");
         watcher.open_versus(2);
-        watcher.type_code(&code);
+        watcher.choose(&code);
         copies.push(joiner);
         copies.push(watcher);
         run("all in room", &mut copies, 10, |c| c.iter().all(|c| c.view().connection == Connection::InRoom) && c[0].view().watching == 1);
@@ -380,6 +386,19 @@ mod tests {
         // The match: every copy goes wide, plays to a result, and comes back to the lobby.
         run("match", &mut copies, 20, |c| c.iter().all(|c| c.app.versus.in_match()));
         run("wide", &mut copies, 20, |c| c.iter().all(|c| c.width == versus::MATCH_WIDTH));
+        // Another finds the match under WATCH, marked LIVE, and watches it too.
+        let mut late = Copy::new(&server, "DEE");
+        late.open_versus(2);
+        let start = Instant::now();
+        while !matches!(&late.view().rooms, RoomList::Rooms(r) if r.iter().any(|r| r.state == ListedState::Playing)) {
+            assert!(start.elapsed() < Duration::from_secs(5), "no live match listed: {:?}", late.view().rooms);
+            late.idle(1);
+        }
+        late.shot("watch_live");
+        late.choose(&code);
+        copies.push(late);
+        run("a second watcher", &mut copies, 10, |c| c[3].view().connection == Connection::InRoom && c[3].app.versus.in_match());
+
         copies[1].shot("match_countdown");
         let started = Instant::now();
         run("into play", &mut copies, 20, |_| started.elapsed() > Duration::from_millis(4000));
@@ -420,7 +439,7 @@ mod tests {
         let code = copies[0].view().code.clone();
         let mut joiner = Copy::new(&server, "BO");
         joiner.open_versus(1);
-        joiner.type_code(&code);
+        joiner.choose(&code);
         copies.push(joiner);
         run("both seated", &mut copies, 10, |c| c.iter().all(|c| c.view().players.iter().all(|p| p.is_some())));
         copies[0].tap("Enter", 2);
@@ -449,7 +468,7 @@ mod tests {
         let code = copies[0].view().code.clone();
         let mut joiner = Copy::new(&server, "BO");
         joiner.open_versus(1);
-        joiner.type_code(&code);
+        joiner.choose(&code);
         copies.push(joiner);
         run("both seated", &mut copies, 10, |c| c.iter().all(|c| c.view().players.iter().all(|p| p.is_some())));
         copies[0].tap("Enter", 2);

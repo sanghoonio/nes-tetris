@@ -5,7 +5,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    clean_name, ConnId, FromRoom, Outcome, Pieces, Player, Seat, Settings, ToRoom, BATCH_FRAMES,
+    clean_name, ConnId, FromRoom, Outcome, Pieces, Player, RoomState, RoomSummary, Seat, Settings, ToRoom,
+    BATCH_FRAMES,
 };
 
 /// Longest input batch the room accepts, in frames.
@@ -98,6 +99,29 @@ impl Room {
         self.game.is_some()
     }
 
+    /// The room as the list of rooms shows it, under `code`: none if it isn't public or has no
+    /// host.
+    pub fn summary(&self, code: &str) -> Option<RoomSummary> {
+        let host = self.seats[0].as_ref()?;
+        if !self.settings.public {
+            return None;
+        }
+        let players = self.seats.iter().flatten().count() as u8;
+        Some(RoomSummary {
+            code: code.to_string(),
+            host: host.name.clone(),
+            players,
+            spectators: self.spectators.len() as u32,
+            level: self.settings.level,
+            same_seed: self.settings.pieces == Pieces::Identical,
+            state: match (self.game.is_some(), players) {
+                (true, _) => RoomState::Playing,
+                (false, 2) => RoomState::Full,
+                _ => RoomState::Open,
+            },
+        })
+    }
+
     /// Whether anyone is connected.
     pub fn empty(&self) -> bool {
         self.conns().is_empty() && self.pending.is_empty()
@@ -151,11 +175,13 @@ impl Room {
                 if !settings.valid() {
                     return out.error(conn, "settings out of range");
                 }
-                self.settings = settings;
-                // A change has to be agreed to again.
-                for o in self.seats.iter_mut().flatten() {
-                    o.ready = false;
+                // A change to the match has to be agreed to again (listing the room isn't one).
+                if (Settings { public: settings.public, ..self.settings }) != settings {
+                    for o in self.seats.iter_mut().flatten() {
+                        o.ready = false;
+                    }
                 }
+                self.settings = settings;
                 out.all(self.conns(), self.lobby());
             }
             ToRoom::Ready { ready } => {

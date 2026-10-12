@@ -1,6 +1,6 @@
 //! A room server on this machine: the same `protocol::Room` as the Cloudflare Worker, over plain
-//! websockets, one room per code, a thread per connection. For trying matches without Cloudflare,
-//! and for tests.
+//! websockets, one room per code, a thread per connection, and the list of public rooms
+//! (`protocol::Directory`) at `/rooms`. For trying matches without Cloudflare, and for tests.
 
 use std::collections::HashMap;
 use std::net::{TcpListener, TcpStream};
@@ -8,7 +8,8 @@ use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use protocol::{ConnId, Event, FromRoom, Room, ToRoom};
+use protocol::directory::Report;
+use protocol::{ConnId, Directory, Event, FromDirectory, FromRoom, Room, ToRoom};
 use tungstenite::Message;
 
 /// A room and the outgoing queue of each connection in it.
@@ -21,6 +22,8 @@ struct Hosted {
 struct Rooms {
     start: Instant,
     rooms: Arc<Mutex<HashMap<String, Hosted>>>,
+    /// The list, and the connections watching it.
+    directory: Arc<Mutex<(Directory, Vec<Sender<FromDirectory>>)>>,
 }
 
 impl Rooms {
@@ -36,15 +39,30 @@ impl Rooms {
                 let _ = tx.send(send.msg);
             }
         }
+        let report = match hosted.room.summary(code) {
+            Some(summary) if !hosted.room.empty() => Report::Listed { summary },
+            _ => Report::Unlisted { code: code.to_string() },
+        };
         if hosted.room.empty() {
             rooms.remove(code);
+        }
+        drop(rooms);
+        let mut directory = self.directory.lock().unwrap();
+        let (list, watchers) = &mut *directory;
+        if list.report(report, self.now()) {
+            let msg = FromDirectory::Rooms { rooms: list.list() };
+            watchers.retain(|tx| tx.send(msg.clone()).is_ok());
         }
     }
 }
 
 /// Serve rooms on `listener` until the process ends.
 pub fn serve(listener: TcpListener) {
-    let rooms = Rooms { start: Instant::now(), rooms: Arc::new(Mutex::new(HashMap::new())) };
+    let rooms = Rooms {
+        start: Instant::now(),
+        rooms: Arc::new(Mutex::new(HashMap::new())),
+        directory: Arc::new(Mutex::new((Directory::default(), vec![]))),
+    };
     let mut next_conn: ConnId = 1;
     for stream in listener.incoming().flatten() {
         let rooms = rooms.clone();
@@ -61,6 +79,9 @@ fn connection(rooms: Rooms, conn: ConnId, stream: TcpStream) {
         Ok(res)
     };
     let Ok(mut ws) = tungstenite::accept_hdr(stream, callback) else { return };
+    if code == "/ROOMS" {
+        return watch_list(rooms, ws);
+    }
     if !protocol::valid_code(&code) {
         let _ = ws.close(None);
         return;
@@ -103,4 +124,32 @@ fn connection(rooms: Rooms, conn: ConnId, stream: TcpStream) {
         hosted.conns.remove(&conn);
     }
     rooms.run(&code, Event::Left(conn));
+}
+
+/// A connection watching the list: the list now, then again whenever it changes.
+fn watch_list(rooms: Rooms, mut ws: tungstenite::WebSocket<TcpStream>) {
+    let (tx, updates) = channel();
+    {
+        let mut directory = rooms.directory.lock().unwrap();
+        let _ = tx.send(FromDirectory::Rooms { rooms: directory.0.list() });
+        directory.1.push(tx);
+    }
+    ws.get_mut().set_nonblocking(true).expect("non-blocking socket");
+    loop {
+        let mut idle = true;
+        while let Ok(msg) = updates.try_recv() {
+            let _ = ws.send(Message::text(msg.to_json()));
+            idle = false;
+        }
+        let _ = ws.flush();
+        match ws.read() {
+            Ok(Message::Close(_)) => break,
+            Ok(_) => idle = false,
+            Err(tungstenite::Error::Io(e)) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+            Err(_) => break,
+        }
+        if idle {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
 }
