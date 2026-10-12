@@ -1,0 +1,87 @@
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: #000;
+  color: #ececec;
+  font-family: ui-monospace, Menlo, monospace;
+}
+
+.game {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.game canvas {
+  image-rendering: pixelated;
+  display: block;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.rom {
+  max-width: 34rem;
+  margin: 0 auto;
+  padding: 3rem 1.5rem;
+  line-height: 1.5;
+}
+
+.drop {
+  margin: 1.5rem 0;
+  padding: 2.5rem 1rem;
+  border: 2px dashed #555;
+  text-align: center;
+  cursor: pointer;
+}
+
+.drop.over {
+  border-color: #a0d6e4;
+}
+
+.error {
+  color: #ec6a64;
+}
+
+.corner {
+  position: fixed;
+  right: 0.75rem;
+  bottom: 0.5rem;
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.8rem;
+  opacity: 0.35;
+}
+
+.corner:hover {
+  opacity: 1;
+}
+
+button,
+.link {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 1px solid #555;
+  padding: 0.35rem 0.8rem;
+  cursor: pointer;
+}
+
+.corner button {
+  border: none;
+  padding: 0;
+  text-decoration: underline;
+}

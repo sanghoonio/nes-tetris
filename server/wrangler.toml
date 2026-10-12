@@ -2,8 +2,13 @@ name = "nes-tetris"
 main = "build/index.js"
 compatibility_date = "2026-10-01"
 
+# The server, then the web page it serves (`../web`, built to `../web/dist`).
 [build]
-command = "cargo install -q \"worker-build@^0.8\" && worker-build --release"
+command = "cargo install -q \"worker-build@^0.8\" && worker-build --release && cd ../web && npm install --silent && npm run build"
+
+# The page and its files; requests for anything else (/new, /room/<code>, /rooms) reach the server.
+[assets]
+directory = "../web/dist"
 
 [durable_objects]
 bindings = [

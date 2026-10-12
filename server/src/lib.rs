@@ -1,4 +1,5 @@
-//! The rooms, as a Cloudflare Worker. `GET /new` makes up a room code; a websocket to
+//! The rooms, as a Cloudflare Worker, which also serves the web page (static assets, `../web`;
+//! they answer first). `GET /new` makes up a room code; a websocket to
 //! `/room/<CODE>` joins that room. Each room is a Durable Object holding a `protocol::Room`,
 //! which does all the deciding; this passes websocket traffic through it. A websocket to `/rooms`
 //! watches the list of public rooms, kept by one more Durable Object (`DirectoryObject`, holding

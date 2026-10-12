@@ -159,11 +159,30 @@ computer with different names:
 `--server URL` works the same way, for a single run without saving.
 
 To host rooms on the internet, deploy the server in `server/` to Cloudflare (the free plan is
-enough):
+enough); it serves the web version too (below):
 
     cd server
     npx wrangler login
     npx wrangler deploy
 
-It prints the address, `https://nes-tetris.<your-subdomain>.workers.dev`; set `server` under
-`[versus]` to the same with `wss://` in front.
+It prints the address, `https://nes-tetris.<your-subdomain>.workers.dev`: the web version is
+there, and the desktop app reaches the rooms by setting `server` under `[versus]` to the same
+with `wss://` in front.
+
+## In a browser
+
+The same game, menus and VERSUS run in a web page (`web/`): the app as WebAssembly
+(`web/engine`) in a small page. Each player gives it their own ROM file once; it stays in their
+browser and is never uploaded. Web and desktop players meet in the same rooms. Building it needs
+Node and `wasm-pack` (`cargo install wasm-pack`).
+
+To try it on your computer, either the page alone, with rooms from `local-room`:
+
+    cargo run --release -p netplay --bin local-room
+    cd web && npm install && npm run dev        # then http://localhost:5173
+
+or the page and the rooms together as Cloudflare would run them:
+
+    cd server && npx wrangler dev               # then http://localhost:8787
+
+`npm test` in `web/` checks the WebAssembly build under Node, including a match between two copies.

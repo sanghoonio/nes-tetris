@@ -1,0 +1,23 @@
+{
+  "name": "nes-tetris-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "engine": "wasm-pack build engine --target web --release --out-dir ../src/engine --no-pack",
+    "dev": "npm run engine && vite",
+    "build": "npm run engine && tsc -b && vite build",
+    "test": "npm run engine && node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.1.0"
+  }
+}
