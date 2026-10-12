@@ -273,3 +273,44 @@ fn room_codes() {
     assert!(codes.iter().all(|c| protocol::valid_code(c)));
     assert!(!protocol::valid_code("ABIO") && !protocol::valid_code("abcd") && !protocol::valid_code("ABCDE"));
 }
+
+#[test]
+fn the_host_removes_the_opponent_between_matches() {
+    let mut room = Room::new(1);
+    hello(&mut room, HOST, "ana", false);
+    hello(&mut room, OPP, "bo", false);
+    hello(&mut room, WATCHER, "cy", true);
+    assert!(to(&msg(&mut room, OPP, ToRoom::Kick), OPP).iter().any(|m| matches!(m, FromRoom::Error { .. })), "only the host");
+    let out = msg(&mut room, HOST, ToRoom::Kick);
+    assert_eq!(to(&out, OPP), vec![FromRoom::Kicked]);
+    let lobby = to(&out, WATCHER).into_iter().find_map(|m| match m {
+        FromRoom::Lobby { players, .. } => Some(players),
+        _ => None,
+    });
+    assert!(lobby.unwrap()[1].is_none(), "the seat is free");
+    // The kicked connection's close changes nothing more.
+    room.handle(Event::Left(OPP));
+    assert!(to(&msg(&mut room, HOST, ToRoom::Kick), HOST).iter().any(|m| matches!(m, FromRoom::Error { .. })), "nobody to remove");
+}
+
+#[test]
+fn no_removing_during_a_match() {
+    let (mut room, _) = playing(Pieces::Separate);
+    let out = msg(&mut room, HOST, ToRoom::Kick);
+    assert!(to(&out, OPP).is_empty());
+    assert!(to(&out, HOST).iter().any(|m| matches!(m, FromRoom::Error { .. })));
+}
+
+#[test]
+fn players_with_one_name_are_told_apart() {
+    let mut room = Room::new(1);
+    hello(&mut room, HOST, "player", false);
+    let out = hello(&mut room, OPP, "player", false);
+    let players = to(&out, HOST).into_iter().find_map(|m| match m {
+        FromRoom::Lobby { players, .. } => Some(players),
+        _ => None,
+    });
+    let [a, b] = players.unwrap().map(Option::unwrap);
+    assert_eq!((a.name.as_str(), b.name.as_str()), ("PLAYER", "PLAYER"), "names as given");
+    assert_ne!(a.id, b.id);
+}

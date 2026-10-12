@@ -137,6 +137,8 @@ struct Room {
 
 /// Matches won by each of two players (by seat in their matches), since they first met here.
 struct Series {
+    /// The two (`Player::id`, which tells them apart), and their names to show.
+    ids: [Option<u32>; 2],
     names: [String; 2],
     wins: [u32; 2],
     /// The players' reports of the last result disagreed.
@@ -193,6 +195,12 @@ impl Versus {
         let Some(room) = self.room.as_mut() else { return };
         while let Ok(event) = room.link.rx.try_recv() {
             match event {
+                // Removed by the host (the connection closes next).
+                LinkEvent::Message(protocol::FromRoom::Kicked) => {
+                    self.lost = Some("THE HOST REMOVED YOU".into());
+                    self.room = None;
+                    return;
+                }
                 LinkEvent::Message(msg) => room.session.receive(now, msg),
                 LinkEvent::Closed(why) => {
                     eprintln!("versus: {why}");
@@ -238,8 +246,8 @@ impl Versus {
         // The score between the two (or who of them left, while their seat's empty).
         let mut series = vec![];
         if let Some(sr) = &room.series {
-            let here = |name: &String| players.iter().flatten().any(|p| &p.0 == name);
-            match sr.names.iter().find(|n| !here(n)) {
+            let here = |id: &Option<u32>| s.players().iter().flatten().any(|p| Some(p.id) == *id);
+            match (0..2).find(|&i| !here(&sr.ids[i])).map(|i| &sr.names[i]) {
                 Some(gone) if players.iter().any(Option::is_none) => series.push(format!("{gone} LEFT")),
                 Some(_) => {}
                 None => {
@@ -290,6 +298,11 @@ impl Versus {
                 self.room = None;
                 self.lost = None;
             }
+            VersusRequest::Kick => {
+                if let Some(room) = self.room.as_mut() {
+                    room.session.kick();
+                }
+            }
             VersusRequest::ListRooms(open) => {
                 self.list = open.then(|| ListLink::open(&self.server));
                 self.rooms = if open { RoomList::Loading } else { RoomList::Closed };
@@ -337,9 +350,10 @@ impl Versus {
                 let names = room.session.match_names().clone().map(|n| n.unwrap_or_else(|| "-".to_string()));
                 if !room.counted {
                     room.counted = true;
-                    let series = room.series.get_or_insert_with(|| Series { names: names.clone(), wins: [0; 2], disputed: false });
-                    if series.names != names {
-                        *series = Series { names, wins: [0; 2], disputed: false };
+                    let ids = room.session.match_ids();
+                    let series = room.series.get_or_insert_with(|| Series { ids, names: names.clone(), wins: [0; 2], disputed: false });
+                    if series.ids != ids {
+                        *series = Series { ids, names, wins: [0; 2], disputed: false };
                     }
                     match outcome {
                         Outcome::Win { seat } => series.wins[*seat as usize] += 1,
@@ -361,8 +375,8 @@ impl Versus {
         for note in room.session.take_notes() {
             room.note = Some(match note {
                 Note::Error(e) => e.to_uppercase(),
-                // The empty seat says so.
-                Note::Gone(_) => continue,
+                // The empty seat says so; being removed is taken as it arrives (`poll`).
+                Note::Gone(_) | Note::Kicked => continue,
                 Note::Desync { .. } => "THE GAMES DISAGREE".to_string(),
                 Note::Abandoned => "BOTH PLAYERS LEFT".to_string(),
             });
@@ -465,7 +479,7 @@ impl Versus {
             }
         }
         // The matches won between the two in this room, between their names.
-        let wins = room.series.as_ref().filter(|s| s.names == names).map_or([0, 0], |s| s.wins);
+        let wins = room.series.as_ref().filter(|s| s.ids == room.session.match_ids()).map_or([0, 0], |s| s.wins);
         let tally = format!("{} - {}", wins[left], wins[1 - left]);
         draw_text(&rom, &mut pixels, width, width / 2 - 4 * tally.len(), BOTTOM_Y, &tally, WHITE);
         match room.session.phase() {

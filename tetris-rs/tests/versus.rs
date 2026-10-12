@@ -235,12 +235,12 @@ fn hosting_and_the_lobby() {
     app.tap("Enter", 5);
     app.shot("room_settings_host");
     app.tap("ArrowRight", 2);
-    let level = RoomSettings { level: 19, ..RoomSettings::default() };
+    let level = RoomSettings { level: 1, ..RoomSettings::default() };
     assert_eq!(app.take(), vec![VersusRequest::Settings(level)]);
     app.tap("ArrowDown", 2);
     app.tap("Enter", 2);
     // Changes build on each other before the room confirms them.
-    assert_eq!(app.take(), vec![VersusRequest::Settings(RoomSettings { level: 19, identical: false, ..RoomSettings::default() })]);
+    assert_eq!(app.take(), vec![VersusRequest::Settings(RoomSettings { level: 1, identical: false, ..RoomSettings::default() })]);
     // Escape: back to the lobby's main page, then out of the room.
     app.tap("Escape", 5);
     assert!(app.take().is_empty());
@@ -361,4 +361,40 @@ fn watch_list() {
     app.shot("watch_empty");
     app.tap("Escape", 5);
     assert_eq!(app.take(), vec![VersusRequest::ListRooms(true), VersusRequest::ListRooms(false)]);
+}
+
+/// The host removes the opponent: Up from READY past ROOM SETTINGS to their name, Enter asks,
+/// anything but YES and Enter leaves them be.
+#[test]
+fn kicking() {
+    let mut app = at_versus_menu();
+    app.tap("Enter", 2);
+    app.take();
+    app.view = in_room(Some(0));
+    app.idle(5);
+    app.tap("ArrowUp", 2);
+    app.tap("ArrowUp", 2);
+    app.tap("Enter", 2);
+    app.shot("kick_ask");
+    // Escape is a no, not leaving.
+    app.tap("Escape", 2);
+    assert!(app.take().is_empty());
+    app.tap("Enter", 2);
+    app.tap("ArrowRight", 2);
+    app.shot("kick_yes");
+    app.tap("Enter", 2);
+    assert_eq!(app.take(), vec![VersusRequest::Kick]);
+    // The opponent can't remove the host.
+    let mut app = at_versus_menu();
+    app.tap("Enter", 2);
+    app.take();
+    app.view = in_room(Some(1));
+    app.idle(5);
+    for _ in 0..3 {
+        app.tap("ArrowUp", 2);
+        app.tap("Enter", 2);
+        app.tap("ArrowRight", 2);
+        app.tap("Enter", 2);
+    }
+    assert!(!app.take().contains(&VersusRequest::Kick));
 }

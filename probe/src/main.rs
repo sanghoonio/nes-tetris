@@ -188,6 +188,7 @@ impl frontend::Game for Online {
                 Note::Gone(seat) => println!("seat {seat} disconnected"),
                 Note::Desync { seat, frame } => println!("DESYNC: seat {seat}'s game differs at frame {frame}"),
                 Note::Abandoned => println!("both players left; no result"),
+                Note::Kicked => println!("the host removed you"),
             }
         }
         for msg in self.session.take_outbox() {

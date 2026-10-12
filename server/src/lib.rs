@@ -90,6 +90,10 @@ impl RoomObject {
         for send in sends {
             if let Some((_, ws)) = sockets.iter().find(|(c, _)| *c == send.to) {
                 let _ = ws.send_with_str(send.msg.to_json());
+                // Removed by the host: the room has already let them go.
+                if send.msg == FromRoom::Kicked {
+                    let _ = ws.close(Some(1000), Some("removed by the host"));
+                }
             }
         }
         if let Some(room) = save {

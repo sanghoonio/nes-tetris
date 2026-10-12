@@ -38,6 +38,9 @@ pub struct Room {
     /// Connections that haven't said `Hello` yet.
     pending: Vec<ConnId>,
     next_match: u32,
+    /// The next player's `id`.
+    #[serde(default)]
+    next_player: u32,
     #[serde(skip)]
     game: Option<Match>,
     /// The last result, until the players' reports are in.
@@ -46,6 +49,9 @@ pub struct Room {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct Occupant {
+    /// Numbered in order of arrival (`Player::id`).
+    #[serde(default)]
+    id: u32,
     /// None once the player has left during a match (the seat is kept until it ends).
     conn: Option<ConnId>,
     name: String,
@@ -89,6 +95,7 @@ impl Room {
             spectators: vec![],
             pending: vec![],
             next_match: 1,
+            next_player: 1,
             game: None,
             awaiting: None,
         }
@@ -148,7 +155,7 @@ impl Room {
 
     fn lobby(&self) -> FromRoom {
         FromRoom::Lobby {
-            players: self.seats.clone().map(|o| o.map(|o| Player { name: o.name, ready: o.ready })),
+            players: self.seats.clone().map(|o| o.map(|o| Player { name: o.name, ready: o.ready, id: o.id })),
             spectators: self.spectators.len() as u32,
             settings: self.settings,
             playing: self.game.is_some(),
@@ -183,6 +190,19 @@ impl Room {
                 }
                 self.settings = settings;
                 out.all(self.conns(), self.lobby());
+            }
+            ToRoom::Kick => {
+                if seat != Some(0) {
+                    return out.error(conn, "only the host removes players");
+                }
+                if self.game.is_some() {
+                    return out.error(conn, "a match is on");
+                }
+                let Some(kicked) = self.seats[1].as_ref().and_then(|o| o.conn) else {
+                    return out.error(conn, "nobody to remove");
+                };
+                out.to(kicked, FromRoom::Kicked);
+                self.left(kicked, out);
             }
             ToRoom::Ready { ready } => {
                 let Some(seat) = seat else { return out.error(conn, "spectators don't ready up") };
@@ -241,7 +261,9 @@ impl Room {
         let free = (0..2).find(|&s| self.seats[s].is_none());
         let seat = match free {
             Some(s) if !watch && self.game.is_none() => {
-                self.seats[s] = Some(Occupant { conn: Some(conn), name: clean_name(name), ready: false });
+                self.next_player = self.next_player.max(1);
+                self.seats[s] = Some(Occupant { id: self.next_player, conn: Some(conn), name: clean_name(name), ready: false });
+                self.next_player += 1;
                 Some(s as Seat)
             }
             _ => {
@@ -293,6 +315,13 @@ impl Room {
         let s = seat as usize;
         let Some(game) = self.game.as_mut() else {
             self.seats[s] = None;
+            // A result waiting on this player's report goes without it.
+            if let Some(a) = self.awaiting.as_mut() {
+                for p in a.players.iter_mut().filter(|p| **p == Some(conn)) {
+                    *p = None;
+                }
+                self.confirm_if_reported(out);
+            }
             self.promote(out);
             out.all(self.conns(), self.lobby());
             return;

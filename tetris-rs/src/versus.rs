@@ -96,6 +96,8 @@ pub enum VersusRequest {
     SetName(String),
     /// JOIN or WATCH opened (true) or closed (false): keep the list of rooms coming meanwhile.
     ListRooms(bool),
+    /// The host removes the opponent from the room.
+    Kick,
 }
 
 /// A room's settings (as `protocol::Settings`): the host's choice, A-type.
@@ -116,10 +118,10 @@ pub struct RoomSettings {
 }
 
 impl Default for RoomSettings {
-    /// Level 18, the same pieces for both, the original rules.
+    /// Level 0, the same pieces for both, the original rules.
     fn default() -> Self {
         RoomSettings {
-            level: 18,
+            level: 0,
             identical: true,
             das_delay: 16,
             das_repeat: 6,

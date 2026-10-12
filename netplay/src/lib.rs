@@ -51,6 +51,8 @@ pub enum Note {
     /// A replica's game no longer matches the player's own checksum: a bug or a modified client.
     Desync { seat: Seat, frame: u32 },
     Abandoned,
+    /// The host removed this player from the room.
+    Kicked,
 }
 
 /// What to draw this frame.
@@ -84,6 +86,8 @@ pub struct Session {
     /// Who played the match (or is playing it), as it started: a player who leaves loses their
     /// seat, but the result still names them.
     match_names: [Option<String>; 2],
+    /// And their `Player::id`s, which tell them apart (names needn't).
+    match_ids: [Option<u32>; 2],
     /// The music the player's own game plays (0..=2, 3 off); replicas play none that's heard.
     music: u8,
     outbox: Vec<ToRoom>,
@@ -138,6 +142,7 @@ impl Session {
             match_seat: None,
             gone: [false; 2],
             match_names: [None, None],
+            match_ids: [None, None],
             music: 0,
             outbox: vec![ToRoom::Hello { name: name.to_string(), watch }],
             notes: vec![],
@@ -196,6 +201,11 @@ impl Session {
         &self.match_names
     }
 
+    /// Who played the last (or current) match, as `Player::id`s.
+    pub fn match_ids(&self) -> [Option<u32>; 2] {
+        self.match_ids
+    }
+
     /// Seats whose player left during this match (their board stops where it is).
     pub fn gone(&self) -> [bool; 2] {
         self.gone
@@ -216,6 +226,11 @@ impl Session {
 
     pub fn set_ready(&mut self, ready: bool) {
         self.outbox.push(ToRoom::Ready { ready });
+    }
+
+    /// As host, remove the opponent (between matches).
+    pub fn kick(&mut self) {
+        self.outbox.push(ToRoom::Kick);
     }
 
     pub fn receive(&mut self, now: u64, msg: FromRoom) {
@@ -240,6 +255,7 @@ impl Session {
                 self.gone = [false; 2];
                 self.match_seat = self.seat;
                 self.match_names = self.players.clone().map(|p| p.map(|p| p.name));
+                self.match_ids = self.players.clone().map(|p| p.map(|p| p.id));
                 self.replicas = [0, 1].map(|s| {
                     (self.match_seat != Some(s as Seat)).then(|| Replica::new(Runner::start_game(self.rom.clone(), None, self.setup(s))))
                 });
@@ -289,6 +305,7 @@ impl Session {
                 self.notes.push(Note::Abandoned);
             }
             FromRoom::Error { message } => self.notes.push(Note::Error(message)),
+            FromRoom::Kicked => self.notes.push(Note::Kicked),
         }
     }
 

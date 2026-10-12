@@ -96,11 +96,19 @@ fn connection(rooms: Rooms, conn: ConnId, stream: TcpStream) {
     ws.get_mut().set_nonblocking(true).expect("non-blocking socket");
     loop {
         let mut idle = true;
+        let mut kicked = false;
         while let Ok(msg) = outgoing.try_recv() {
+            kicked |= msg == FromRoom::Kicked;
             let _ = ws.send(Message::text(msg.to_json()));
             idle = false;
         }
         let _ = ws.flush();
+        // Removed by the host: the room has already let them go.
+        if kicked {
+            let _ = ws.close(None);
+            let _ = ws.flush();
+            break;
+        }
         match ws.read() {
             Ok(Message::Text(text)) => {
                 match ToRoom::from_json(&text) {

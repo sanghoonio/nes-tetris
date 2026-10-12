@@ -373,8 +373,8 @@ mod tests {
         // goes back, and both ready up.
         copies[0].tap("ArrowUp", 2);
         copies[0].tap("Enter", 2);
-        for _ in 0..3 {
-            copies[0].tap("ArrowLeft", 2);
+        for _ in 0..15 {
+            copies[0].tap("ArrowRight", 2);
         }
         run("level 15", &mut copies, 10, |c| c.iter().all(|c| c.view().settings.level == 15));
         copies[0].shot("room_settings");
@@ -427,6 +427,61 @@ mod tests {
         copies[0].tap("Enter", 2);
         copies[1].tap("Enter", 2);
         run("rematch", &mut copies, 20, |c| c.iter().all(|c| c.app.versus.in_match()));
+    }
+
+    /// Two in a room, seated (the joiner from JOIN's list).
+    fn two_in_a_room(host: &str, joiner: &str) -> (Vec<Copy>, String) {
+        let server = local_room();
+        let mut a = Copy::new(&server, host);
+        a.open_versus(0);
+        let mut copies = vec![a];
+        run("host in room", &mut copies, 10, |c| c[0].view().connection == Connection::InRoom);
+        let code = copies[0].view().code.clone();
+        let mut b = Copy::new(&server, joiner);
+        b.open_versus(1);
+        b.choose(&code);
+        copies.push(b);
+        run("both seated", &mut copies, 10, |c| c.iter().all(|c| c.view().players.iter().all(|p| p.is_some())));
+        (copies, code)
+    }
+
+    /// The host removes the opponent: they're back at the VERSUS menu, told so, and the seat
+    /// is free.
+    #[test]
+    fn the_host_kicks() {
+        let (mut copies, _) = two_in_a_room("ANA", "BO");
+        copies[0].tap("ArrowUp", 2);
+        copies[0].tap("ArrowUp", 2);
+        copies[0].tap("Enter", 2);
+        copies[0].tap("ArrowRight", 2);
+        copies[0].tap("Enter", 2);
+        run("BO removed", &mut copies, 10, |c| c[1].view().connection == Connection::Lost("THE HOST REMOVED YOU".into()));
+        run("the seat free", &mut copies, 10, |c| c[0].view().players[1].is_none() && c[0].view().status == "WAITING FOR A PLAYER");
+        copies[1].idle(5);
+        copies[1].shot("kicked");
+    }
+
+    /// Two players called PLAYER: the score between them, then which of them left, still work.
+    #[test]
+    fn one_name_for_two() {
+        let (mut copies, _) = two_in_a_room("PLAYER", "PLAYER");
+        copies[0].tap("Enter", 2);
+        copies[1].tap("Enter", 2);
+        run("match", &mut copies, 20, |c| c.iter().all(|c| c.app.versus.in_match()));
+        run("confirmed", &mut copies, 120, |c| c.iter().all(|c| c.app.versus.confirmed()));
+        for c in copies.iter_mut() {
+            c.tap("Enter", 2);
+        }
+        run("back to lobby", &mut copies, 10, |c| c.iter().all(|c| !c.app.versus.in_match()));
+        let one = ["PLAYER 1 - 0 PLAYER", "PLAYER 0 - 1 PLAYER", "PLAYER 0 - 0 PLAYER"];
+        assert!(one.contains(&copies[0].view().series[0].as_str()), "{:?}", copies[0].view().series);
+        // The joiner leaves.
+        for c in copies.iter_mut() {
+            c.idle(GUARD_FRAMES as usize);
+        }
+        copies[1].tap("Escape", 5);
+        copies.truncate(1);
+        run("PLAYER left", &mut copies, 10, |c| c[0].view().series == ["PLAYER LEFT"]);
     }
 
     #[test]

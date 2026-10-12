@@ -49,6 +49,8 @@ pub enum ToRoom {
     /// After a result: the score of each seat's game at the frame the result names, as this
     /// client's games and replicas have it.
     Report { match_id: u32, scores: [u32; 2] },
+    /// The host removes the opponent from the room, between matches.
+    Kick,
 }
 
 /// Room to client.
@@ -76,6 +78,8 @@ pub enum FromRoom {
     Confirmed { match_id: u32, agreed: bool },
     /// Both players left during a match: no result.
     Abandoned { match_id: u32 },
+    /// To the opponent the host removed: the connection ends after this.
+    Kicked,
     Error { message: String },
 }
 
@@ -91,6 +95,9 @@ pub enum Outcome {
 pub struct Player {
     pub name: String,
     pub ready: bool,
+    /// Who this is, for as long as they're in the room: names needn't be different.
+    #[serde(default)]
+    pub id: u32,
 }
 
 /// What the host chooses. Matches are A-type.
@@ -111,7 +118,7 @@ fn listed() -> bool {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { level: 18, pieces: Pieces::Identical, rules: Rules::default(), public: true }
+        Settings { level: 0, pieces: Pieces::Identical, rules: Rules::default(), public: true }
     }
 }
 

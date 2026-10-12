@@ -139,6 +139,8 @@ statistics aren't shown). Each score box also shows the gap to the other player,
 ahead and red when behind, and the names sit under the boards with the matches won between you.
 Your game keys work as usual; there's no
 pausing, and pressing Escape twice leaves the match, which forfeits it. After the result, READY again for a rematch.
+Between matches the host can remove the other player: choose their name in the lobby, then KICK
+YES.
 
 Each player needs their own ROM. Only button presses and scores travel between the games.
 

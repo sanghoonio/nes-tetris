@@ -109,10 +109,10 @@ pub struct Room {
 }
 
 impl Default for Room {
-    /// Level 18, the same pieces for both, the original rules.
+    /// Level 0, the same pieces for both, the original rules.
     fn default() -> Self {
         Room {
-            level: 18,
+            level: 0,
             pieces: "same".into(),
             das_delay: 16,
             das_repeat: 6,

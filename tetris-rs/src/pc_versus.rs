@@ -155,6 +155,8 @@ enum Page {
 /// What the lobby's cursor can be on.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum LobbyItem {
+    /// The opponent's name, for the host to remove them.
+    Opponent,
     Ready,
     RoomSettings,
     Leave,
@@ -165,6 +167,7 @@ enum LobbyItem {
 impl LobbyItem {
     fn row(self) -> u8 {
         match self {
+            LobbyItem::Opponent => PLAYER_ROWS[1],
             LobbyItem::Ready => READY_ROW,
             LobbyItem::RoomSettings => ROOM_SETTINGS_ROW,
             LobbyItem::Setting(s) => FIRST_SETTING_ROW + 2 * SETTINGS.iter().position(|&x| x == s).unwrap() as u8,
@@ -174,6 +177,7 @@ impl LobbyItem {
 
     fn label(self) -> &'static str {
         match self {
+            LobbyItem::Opponent => "",
             LobbyItem::Ready => "READY",
             LobbyItem::RoomSettings => "ROOM SETTINGS",
             LobbyItem::Leave => "LEAVE",
@@ -535,7 +539,7 @@ impl Game {
 
     /// Every line inside the lobby's panel for `view` on `page`, blank rows included (so a page
     /// change redraws all of it).
-    fn lobby_lines(view: &VersusView, page: Page) -> Vec<(u8, String)> {
+    fn lobby_lines(view: &VersusView, page: Page, kick: Option<bool>) -> Vec<(u8, String)> {
         let mut lines: Vec<(u8, String)> = (HEADER_ROW..=BACK_ROW).map(|row| (row, Self::label_value("", ""))).collect();
         let mut put = |(row, text): (u8, String)| lines[(row - HEADER_ROW) as usize].1 = text;
         let in_room = view.connection == Connection::InRoom;
@@ -555,6 +559,10 @@ impl Game {
                 wrapped(&status, &STATUS_ROWS).into_iter().for_each(&mut put);
                 for (i, row) in PLAYER_ROWS.into_iter().enumerate() {
                     let text = match &view.players[i] {
+                        // The host asking whether to remove the opponent.
+                        Some((name, _)) if i == 1 && kick.is_some() => {
+                            Self::label_value(name, if kick == Some(true) { "KICK YES" } else { "KICK NO" })
+                        }
                         Some((name, ready)) => {
                             let you = if view.seat == Some(i as u8) { " (YOU)" } else { "" };
                             Self::label_value(&format!("{name}{you}"), if *ready { "READY" } else { "" })
@@ -601,6 +609,9 @@ impl Game {
         match page {
             Page::Main => {
                 if view.connection == Connection::InRoom {
+                    if view.seat == Some(0) && view.players[1].is_some() {
+                        items.push(LobbyItem::Opponent);
+                    }
                     items.push(LobbyItem::RoomSettings);
                     if view.seat.is_some() {
                         items.push(LobbyItem::Ready);
@@ -622,7 +633,7 @@ impl Game {
     async fn lobby(&mut self) {
         self.versus_panel().await;
         let mut page = Page::Main;
-        let mut shown = Self::lobby_lines(&self.view(), page);
+        let mut shown = Self::lobby_lines(&self.view(), page, None);
         for (row, text) in &shown {
             self.put_text(*row, INNER.0, text);
         }
@@ -633,6 +644,8 @@ impl Game {
         // The host's changes not yet confirmed by the room: shown, and stepped from, meanwhile
         // (a quick run of key presses shouldn't each start from the room's last word).
         let mut pending: Option<RoomSettings> = None;
+        // Asking whether to remove the opponent: the answer chosen so far.
+        let mut kick: Option<bool> = None;
         loop {
             self.update_audio_wait_for_nmi_and_reset_oam_staging().await;
             let mut view = self.view();
@@ -646,8 +659,12 @@ impl Game {
             if page == Page::RoomSettings && view.connection != Connection::InRoom {
                 page = Page::Main;
             }
+            let items = Self::lobby_items(&view, page);
+            if !items.contains(&LobbyItem::Opponent) {
+                kick = None;
+            }
             // Redraw what changed.
-            let lines = Self::lobby_lines(&view, page);
+            let lines = Self::lobby_lines(&view, page, kick);
             for (line, old) in lines.iter().zip(&shown) {
                 if line != old {
                     self.queue_text(line.0, INNER.0, &line.1);
@@ -655,7 +672,6 @@ impl Game {
             }
             shown = lines;
             self.ui.colon = shown[0].1.trim_start_matches(HALF).find('.').map(|i| (HEADER_ROW, INNER.0 + i as u8));
-            let items = Self::lobby_items(&view, page);
             // Arriving in the room (seated): the cursor starts on READY.
             let has_ready = items.contains(&LobbyItem::Ready);
             if has_ready && !had_ready {
@@ -671,7 +687,23 @@ impl Game {
             let keys = self.menu_pressed();
             let has = |k| keys.contains(&k);
             let back = has(MenuKey::Back) || (has(MenuKey::Confirm) && matches!(at, LobbyItem::Leave | LobbyItem::Back));
-            if back && page == Page::RoomSettings {
+            if let Some(yes) = kick {
+                // The question takes the keys until answered: Left/Right choose, Enter answers,
+                // anything else (Escape, Up, Down) is a no.
+                if has(MenuKey::Left) || has(MenuKey::Right) {
+                    kick = Some(!yes);
+                    self.vars.sfx_init[1] = SFX_MENU_OPTION;
+                } else if has(MenuKey::Confirm) {
+                    if yes {
+                        self.request(VersusRequest::Kick);
+                    }
+                    kick = None;
+                    self.vars.sfx_init[1] = SFX_MENU_SCREEN;
+                } else if !keys.is_empty() {
+                    kick = None;
+                    self.vars.sfx_init[1] = SFX_MENU_OPTION;
+                }
+            } else if back && page == Page::RoomSettings {
                 self.vars.sfx_init[1] = SFX_MENU_SCREEN;
                 page = Page::Main;
                 at = LobbyItem::RoomSettings;
@@ -699,6 +731,10 @@ impl Game {
                         self.request(VersusRequest::Ready(!ready));
                         self.vars.sfx_init[1] = SFX_MENU_SCREEN;
                     }
+                    LobbyItem::Opponent if has(MenuKey::Confirm) => {
+                        kick = Some(false);
+                        self.vars.sfx_init[1] = SFX_MENU_OPTION;
+                    }
                     LobbyItem::RoomSettings if has(MenuKey::Confirm) => {
                         page = Page::RoomSettings;
                         at = Self::lobby_items(&view, page)[0];
@@ -707,7 +743,11 @@ impl Game {
                     _ => {}
                 }
             }
-            self.stage_menu_arrows(at.row(), LABEL_COL, at.label().len());
+            let len = match at {
+                LobbyItem::Opponent => view.players[1].as_ref().map_or(0, |p| p.0.len()),
+                _ => at.label().len(),
+            };
+            self.stage_menu_arrows(at.row(), LABEL_COL, len);
         }
     }
 }

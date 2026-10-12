@@ -19,7 +19,7 @@ fn a_room_summarises_itself() {
     assert_eq!(room.summary("KQXR"), None, "no host yet");
     hello(&mut room, 1, "ana");
     let s = room.summary("KQXR").unwrap();
-    assert_eq!((s.host.as_str(), s.players, s.level, s.same_seed, s.state), ("ANA", 1, 18, true, RoomState::Open));
+    assert_eq!((s.host.as_str(), s.players, s.level, s.same_seed, s.state), ("ANA", 1, 0, true, RoomState::Open));
     hello(&mut room, 2, "bo");
     assert_eq!(room.summary("KQXR").unwrap().state, RoomState::Full);
     room.handle(Event::Message(1, ToRoom::Ready { ready: true }));
