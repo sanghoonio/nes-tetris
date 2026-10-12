@@ -13,7 +13,7 @@ use netplay::{Link, LinkEvent, Note, Phase, Session, HEIGHT, WIDTH};
 use protocol::{Outcome, Pieces, Settings};
 use tetris_rs::options::LeftRight;
 use tetris_rs::pc_input::play_buttons;
-use tetris_rs::versus::{draw_text, Connection, RoomSettings, VersusRequest, VersusView, WHITE};
+use tetris_rs::versus::{draw_text, Connection, RoomSettings, VersusRequest, VersusView, BLACK, WHITE};
 use tetris_rs::{Config, Rom};
 
 use crate::settings;
@@ -28,9 +28,31 @@ const BACKGROUND: [(usize, usize); 2] = [(248, 256), (0, 8)];
 const BOARD: [(usize, usize); 5] = [BACKGROUND[0], BACKGROUND[1], (88, 248), BACKGROUND[0], BACKGROUND[1]];
 /// The playfield's strip on the game screen.
 const PLAYFIELD: (usize, usize) = (88, 184);
-/// A board's width in the match picture, and the picture's.
+/// A board's width in the match picture. Between the two boards, two more tiles of background
+/// make six in all, about half a playfield, as Tetris Effect's classic versus spaces them.
 const BOARD_WIDTH: usize = 192;
-pub const MATCH_WIDTH: usize = 2 * BOARD_WIDTH;
+const BETWEEN: usize = 16;
+const BETWEEN_SHIFT: usize = 64;
+pub const MATCH_WIDTH: usize = 2 * BOARD_WIDTH + BETWEEN;
+/// The score box's inside on the game screen (TOP and SCORE, which a match shows as SCORE, the
+/// score, and the difference from the opponent's), and where its lines go.
+const SCORE_BOX: (usize, usize, usize, usize) = (189, 243, 21, 83);
+const SCORE_X: usize = 195;
+const SCORE_LINES: [usize; 3] = [40, 48, 56];
+/// The difference's colours: green ahead (or level), red behind; the result's: WIN yellow, LOSE
+/// grey.
+const GREEN: u8 = 0x2A;
+const RED: u8 = 0x16;
+const YELLOW: u8 = 0x28;
+const GREY: u8 = 0x10;
+/// The sign before the difference, narrower than a letter (5 by 7, left pixel in bit 4): the font
+/// has no plus.
+const PLUS: [u8; 7] = [0b00000, 0b00100, 0b00100, 0b11111, 0b00100, 0b00100, 0b00000];
+const MINUS: [u8; 7] = [0b00000, 0b00000, 0b00000, 0b11111, 0b00000, 0b00000, 0b00000];
+/// The rows of text under the boards (names, the score between the players) and above them
+/// (Escape's prompt).
+const BOTTOM_Y: usize = 224;
+const TOP_Y: usize = 4;
 /// How long the result stays over the boards (unless Enter is pressed first).
 const RESULT_MS: u64 = 6000;
 /// The middle of the playfield on the game screen, in pixels from its left.
@@ -335,25 +357,66 @@ impl Versus {
         let width = MATCH_WIDTH;
         let mut pixels = vec![0x0Fu8; width * HEIGHT];
         let ours = place(&BOARD, 0);
-        let theirs = place(&BOARD, BOARD_WIDTH);
+        let theirs = place(&BOARD, BOARD_WIDTH + BETWEEN);
         let centres = [ours.1, theirs.1];
+        let copy = |pixels: &mut [u8], board: &[u8], strips: &[(usize, usize, usize)]| {
+            for &(from, to, at) in strips {
+                for y in 0..HEIGHT {
+                    pixels[y * width + at..][..to - from].copy_from_slice(&board[y * WIDTH + from..][..to - from]);
+                }
+            }
+        };
+        // The background between the boards, from either: the same two columns as the margins,
+        // from further down, so the three strips side by side don't repeat row for row.
+        if let Some(board) = view.boards.iter().flatten().next() {
+            let (between, _) = place(&BACKGROUND, BOARD_WIDTH);
+            for &(from, to, at) in &between {
+                for y in 0..HEIGHT {
+                    let sy = (y + BETWEEN_SHIFT) % HEIGHT;
+                    pixels[y * width + at..][..to - from].copy_from_slice(&board[sy * WIDTH + from..][..to - from]);
+                }
+            }
+        }
+        let names = room.session.match_names().clone().map(Option::unwrap_or_default);
+        let mut scores = room.session.scores().map(Option::unwrap_or_default);
+        if let Phase::Over { scores: official, .. } = room.session.phase() {
+            scores = *official;
+        }
         for (seat, (strips, middle)) in [(left, &ours), (1 - left, &theirs)] {
             if let Some(board) = &view.boards[seat] {
-                for &(from, to, at) in strips {
-                    for y in 0..HEIGHT {
-                        pixels[y * width + at..][..to - from].copy_from_slice(&board[y * WIDTH + from..][..to - from]);
+                copy(&mut pixels, &board[..], strips);
+            }
+            // The score box: SCORE, the score, and the difference from the opponent's.
+            let (main_from, _, main_at) = strips[2];
+            let sx = |x: usize| main_at + x - main_from;
+            let (x0, x1, y0, y1) = SCORE_BOX;
+            for y in y0..y1 {
+                pixels[y * width + sx(x0)..y * width + sx(x1)].fill(BLACK);
+            }
+            let diff = scores[seat] as i64 - scores[1 - seat] as i64;
+            let colour = if diff >= 0 { GREEN } else { RED };
+            draw_text(&rom, &mut pixels, width, sx(SCORE_X), SCORE_LINES[0], "SCORE", WHITE);
+            draw_text(&rom, &mut pixels, width, sx(SCORE_X), SCORE_LINES[1], &format!("{:06}", scores[seat].min(999_999)), WHITE);
+            draw_text(&rom, &mut pixels, width, sx(SCORE_X), SCORE_LINES[2], &format!("{:06}", diff.unsigned_abs().min(999_999)), colour);
+            let sign = if diff >= 0 { PLUS } else { MINUS };
+            for (dy, bits) in sign.iter().enumerate() {
+                for dx in 0..5 {
+                    if bits >> (4 - dx) & 1 != 0 {
+                        pixels[(SCORE_LINES[2] + dy) * width + sx(x0) + dx] = colour;
                     }
                 }
             }
-            // Each board's player, above its playfield.
-            if let Some(name) = &room.session.match_names()[seat] {
-                draw_text(&rom, &mut pixels, width, middle - 4 * name.len(), 1, name, WHITE);
-            }
+            // Each board's player, under its playfield.
+            draw_text(&rom, &mut pixels, width, middle - 4 * names[seat].len(), BOTTOM_Y, &names[seat], WHITE);
             // A player who left: their board stops, marked.
             if room.session.gone()[seat] {
-                draw_text(&rom, &mut pixels, width, middle - 8, 72, "LEFT", WHITE);
+                draw_text(&rom, &mut pixels, width, middle - 8, 84, "LEFT", WHITE);
             }
         }
+        // The matches won between the two in this room, between their names.
+        let wins = room.series.as_ref().filter(|s| s.names == names).map_or([0, 0], |s| s.wins);
+        let tally = format!("{} - {}", wins[left], wins[1 - left]);
+        draw_text(&rom, &mut pixels, width, width / 2 - 4 * tally.len(), BOTTOM_Y, &tally, WHITE);
         match room.session.phase() {
             Phase::Countdown { at } => {
                 let n = at.saturating_sub(now).div_ceil(1000).to_string();
@@ -362,32 +425,29 @@ impl Versus {
                 }
             }
             Phase::Over { outcome, confirmed, .. } => {
-                // Over the left board only: how it went for its player (us, or the host when
-                // watching).
-                let won = match outcome {
-                    Outcome::Win { seat } => Some(*seat as usize == left),
-                    Outcome::Forfeit { seat } => Some(*seat as usize != left),
+                // At the top of each playfield: WIN or LOSE (or DRAW).
+                let winner = match outcome {
+                    Outcome::Win { seat } => Some(*seat as usize),
+                    Outcome::Forfeit { seat } => Some(1 - *seat as usize),
                     Outcome::Draw => None,
                 };
-                let headline = match (won, room.session.match_seat().is_some()) {
-                    (None, _) => "DRAW".to_string(),
-                    (Some(true), true) => "YOU WIN".to_string(),
-                    (Some(false), true) => "YOU LOSE".to_string(),
-                    (Some(w), false) => {
-                        let name = room.session.match_names()[left].clone().unwrap_or_default();
-                        format!("{name} {}", if w { "WINS" } else { "LOSES" })
+                for (seat, middle) in [(left, centres[0]), (1 - left, centres[1])] {
+                    let (text, colour) = match winner {
+                        None => ("DRAW", WHITE),
+                        Some(w) if w == seat => ("WIN", YELLOW),
+                        Some(_) => ("LOSE", GREY),
+                    };
+                    draw_text(&rom, &mut pixels, width, middle - 4 * text.len(), 56, text, colour);
+                    if *confirmed == Some(false) {
+                        draw_text(&rom, &mut pixels, width, middle - 4 * 8, 68, "DISPUTED", WHITE);
                     }
-                };
-                let lines = [headline, if *confirmed == Some(false) { "DISPUTED".into() } else { String::new() }];
-                for (i, line) in lines.iter().filter(|l| !l.is_empty()).enumerate() {
-                    draw_text(&rom, &mut pixels, width, centres[0].saturating_sub(4 * line.len()), 96 + 12 * i, line, WHITE);
                 }
             }
             _ => {}
         }
         if room.escape_at.is_some_and(|t| now < t + ESCAPE_MS) {
             let text = "ESC AGAIN TO QUIT";
-            draw_text(&rom, &mut pixels, width, width / 2 - 4 * text.len(), 224, text, WHITE);
+            draw_text(&rom, &mut pixels, width, width / 2 - 4 * text.len(), TOP_Y, text, WHITE);
         }
         (pixels, std::mem::take(&mut view.samples))
     }
