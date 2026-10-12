@@ -83,11 +83,19 @@ pub fn game_boxes(rom: &Rom) -> [[bool; 32]; 30] {
     std::array::from_fn(|r| std::array::from_fn(|c| !PATTERN.contains(&ppu[0x2000 + r * 32 + c])))
 }
 
+/// The game's tiles: CHR bank 3 (`CHR_GAME`), for the background and the sprites alike.
+pub const GAME_CHR: usize = 3 * 0x1000;
+
+/// Sprite palette 0 in a game, which the pause screen's text and arrows are drawn in.
+pub fn game_sprite_palette(rom: &Rom) -> [u8; 4] {
+    let ppu = game_ppu(rom);
+    std::array::from_fn(|i| ppu[0x3F10 + i])
+}
+
 /// The game screen with nothing in it yet: the boxes and their labels, no numbers, an empty
 /// playfield. For the boards until their games begin.
 pub fn empty_game_screen(rom: &Rom) -> Vec<u8> {
-    /// The game's background tiles: CHR bank 3 (`CHR_GAME`).
-    const CHR: usize = 3 * 0x1000;
+    const CHR: usize = GAME_CHR;
     let ppu = game_ppu(rom);
     let mut pixels = vec![0u8; 256 * 240];
     for r in 0..30 {

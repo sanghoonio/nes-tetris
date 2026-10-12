@@ -13,7 +13,8 @@ use protocol::{Outcome, Pieces, Settings};
 use tetris_rs::options::LeftRight;
 use tetris_rs::pc_input::play_buttons;
 use tetris_rs::versus::{draw_glyphs, draw_text, Connection, ListedRoom, ListedState, RoomList, RoomSettings, VersusRequest, VersusView, BLACK, WHITE};
-use tetris_rs::{Config, Rom};
+use tetris_rs::saved::NAME_CHARS;
+use tetris_rs::{layout, Config, Rom};
 
 use crate::backdrop::{self, Backdrop};
 use crate::settings;
@@ -23,16 +24,16 @@ use crate::settings;
 /// above it, then the panel: TOP and SCORE, NEXT, LEVEL; not the statistics or A-TYPE), with the
 /// score box a tile wider, to hold the difference's sign, and two shorter, for its three lines.
 /// The background is laid afresh across all of it (`backdrop`).
-const MARGIN: usize = 3;
-const GAP: usize = 5;
+const MARGIN: usize = 4;
+const GAP: usize = 6;
 const BOARD_COLS: usize = 21;
 const MATCH_COLS: usize = 2 * MARGIN + 2 * BOARD_COLS + GAP;
 pub const MATCH_WIDTH: usize = 8 * MATCH_COLS;
 /// Above the boards, a row of background, a box for each player (their name and the matches
-/// they've won here), and a row; below them, a row. The game screen's rows 2..=26 (the boards'
+/// they've won here), and a row; below them, two rows. The game screen's rows 2..=26 (the boards'
 /// boxes) land on rows 6..=30.
 const TOP_ROWS: usize = 6;
-const MATCH_ROWS: usize = 32;
+const MATCH_ROWS: usize = 33;
 pub const MATCH_HEIGHT: usize = 8 * MATCH_ROWS;
 /// The players' boxes: rows, and columns (wide enough for an 8-letter name and a margin each
 /// side), centred in each half of the picture.
@@ -136,6 +137,8 @@ pub struct Versus {
     backdrop: Backdrop,
     /// The game screen with nothing in it, for a board whose game hasn't begun.
     empty: Vec<u8>,
+    /// The colours of the game's pause screen (its sprites').
+    sprite_palette: [u8; 4],
 }
 
 struct Room {
@@ -214,7 +217,24 @@ impl Versus {
             name_box || board
         });
         let empty = backdrop::empty_game_screen(&rom);
-        Versus { rom, sample_rate, now: 0, rng: seed | 1, server, name, music: 0, room: None, lost: None, list: None, rooms: RoomList::Closed, boxes, backdrop, empty }
+        let sprite_palette = backdrop::game_sprite_palette(&rom);
+        Versus {
+            rom,
+            sample_rate,
+            now: 0,
+            rng: seed | 1,
+            server,
+            name,
+            music: 0,
+            room: None,
+            lost: None,
+            list: None,
+            rooms: RoomList::Closed,
+            boxes,
+            backdrop,
+            empty,
+            sprite_palette,
+        }
     }
 
     fn now(&self) -> u64 {
@@ -647,27 +667,30 @@ impl Versus {
             // Decided while the winner plays on: nothing yet; WIN and LOSE come together at the end.
             _ => {}
         }
-        // Paused: both playfields blank (as the game hides its own), and the game's pause screen
-        // centred in the picture; watching, PAUSED only.
+        // Paused: the game's pause screen, as it draws it (its sprites, on a blank picture),
+        // centred; watching, PAUSED only.
         if room.session.paused() {
-            for i in 0..2 {
-                for y in oy + 48..oy + 208 {
-                    pixels[y * width + sx(i, 96)..y * width + sx(i, 176)].fill(BLACK);
+            pixels.fill(BLACK);
+            let (middle, top) = (width / 2, (pixels.len() / width - 240) / 2);
+            let palette = self.sprite_palette;
+            let text = |pixels: &mut [u8], text: &str, y: usize| {
+                for (i, c) in text.chars().enumerate() {
+                    let tile = NAME_CHARS.find(c).map_or(BLANK_TILE, |n| rom.table(layout::HIGH_SCORE_CHAR_TO_TILE, n));
+                    draw_sprite(&rom, pixels, width, middle - 4 * text.len() + 8 * i, y, tile, false, palette);
                 }
-            }
-            let middle = width / 2;
-            draw_text(&rom, &mut pixels, width, middle - 4 * 6, oy + 104, "PAUSED", WHITE);
+            };
+            text(&mut pixels, "PAUSED", top + 104);
             if let Some(at) = room.pause {
                 let items = ["RESUME", "QUIT"];
                 for (k, item) in items.iter().enumerate() {
-                    draw_text(&rom, &mut pixels, width, middle - 4 * item.len(), oy + 128 + 12 * k, item, WHITE);
+                    text(&mut pixels, item, top + 128 + 12 * k);
                 }
                 // The menus' flickering arrows (gone one frame in four).
                 if !(now * 60 / 1000).is_multiple_of(4) {
-                    let (item, y) = (items[at], oy + 128 + 12 * at);
+                    let (item, y) = (items[at], top + 128 + 12 * at);
                     let (x0, x1) = (middle - 4 * item.len(), middle + 4 * item.len());
-                    draw_arrow(&rom, &mut pixels, width, x0 - 10, y, false);
-                    draw_arrow(&rom, &mut pixels, width, x1 + 2, y, true);
+                    draw_sprite(&rom, &mut pixels, width, x0 - 9, y, ARROW_TILE, false, palette);
+                    draw_sprite(&rom, &mut pixels, width, x1 + 1, y, ARROW_TILE, true, palette);
                 }
             }
         }
@@ -714,20 +737,22 @@ fn listed(r: &protocol::RoomSummary) -> ListedRoom {
     }
 }
 
-/// The menus' arrow (the menu font's tile $27, pointing right; `flip` points it left), in white on
-/// black.
-fn draw_arrow(rom: &Rom, pixels: &mut [u8], width: usize, x: usize, y: usize, flip: bool) {
-    const ARROW: usize = 0x27;
-    // On black, as the text is.
-    for py in y.saturating_sub(1)..y + 9 {
-        pixels[py * width + x - 1..][..10].fill(BLACK);
-    }
+/// The game's arrow sprite (pointing right; flipped, left), and a blank tile.
+const ARROW_TILE: u8 = 0x27;
+const BLANK_TILE: u8 = 0xFF;
+
+/// One of the game's sprites, as the game draws it: `tile` from its tiles, in `palette` (colour 0
+/// see-through), flipped left to right if `flip`.
+#[allow(clippy::too_many_arguments)]
+fn draw_sprite(rom: &Rom, pixels: &mut [u8], width: usize, x: usize, y: usize, tile: u8, flip: bool, palette: [u8; 4]) {
+    let at = backdrop::GAME_CHR + tile as usize * 16;
     for row in 0..8 {
-        let (lo, hi) = (rom.chr[ARROW * 16 + row], rom.chr[ARROW * 16 + row + 8]);
+        let (lo, hi) = (rom.chr[at + row], rom.chr[at + row + 8]);
         for col in 0..8 {
             let bit = if flip { col } else { 7 - col };
-            if ((lo | hi) >> bit) & 1 != 0 {
-                pixels[(y + row) * width + x + col] = WHITE;
+            let v = ((lo >> bit) & 1) | (((hi >> bit) & 1) << 1);
+            if v != 0 {
+                pixels[(y + row) * width + x + col] = palette[v as usize];
             }
         }
     }
