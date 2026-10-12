@@ -384,6 +384,20 @@ fn kicking() {
     app.shot("kick_yes");
     app.tap("Enter", 2);
     assert_eq!(app.take(), vec![VersusRequest::Kick]);
+    // Down while asking is a no, and moves on: to ROOM SETTINGS, whose Enter opens its page
+    // (BACK is then the last item, reached by Up).
+    app.tap("Enter", 2);
+    app.tap("ArrowDown", 2);
+    app.tap("Enter", 5);
+    app.tap("ArrowUp", 2);
+    app.tap("ArrowRight", 2);
+    assert_eq!(app.take(), vec![], "nothing kicked; on ROOM SETTINGS' BACK, Right does nothing");
+    app.tap("Enter", 5);
+    app.tap("ArrowUp", 2);
+    app.tap("Enter", 2);
+    app.tap("ArrowRight", 2);
+    app.tap("Enter", 2);
+    assert_eq!(app.take(), vec![VersusRequest::Kick], "back on the main page, Up from ROOM SETTINGS is the name again");
     // The opponent can't remove the host.
     let mut app = at_versus_menu();
     app.tap("Enter", 2);

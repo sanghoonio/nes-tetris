@@ -693,9 +693,13 @@ impl Game {
             let keys = self.menu_pressed();
             let has = |k| keys.contains(&k);
             let back = has(MenuKey::Back) || (has(MenuKey::Confirm) && matches!(at, LobbyItem::Leave | LobbyItem::Back));
+            // Up or Down while asking is a no, and moves the cursor as usual.
+            if kick.is_some() && (has(MenuKey::Up) || has(MenuKey::Down)) {
+                kick = None;
+            }
             if let Some(yes) = kick {
-                // The question takes the keys until answered: Left/Right choose, Enter answers,
-                // anything else (Escape, Up, Down) is a no.
+                // The question takes the other keys until answered: Left/Right choose, Enter
+                // answers, Escape is a no.
                 if has(MenuKey::Left) || has(MenuKey::Right) {
                     kick = Some(!yes);
                     self.vars.sfx_init[1] = SFX_MENU_OPTION;
