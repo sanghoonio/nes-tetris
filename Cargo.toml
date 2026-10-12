@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["apu", "client", "crossplay", "desktop", "frontend", "ppu", "netplay", "probe", "protocol", "recomp", "tetris-rs"]
+members = ["apu", "bots", "client", "crossplay", "desktop", "frontend", "ppu", "netplay", "probe", "protocol", "recomp", "tetris-rs"]
 # `cargo build` / `cargo run` build just the game; the recompile needs code generated from the
 # ROM first (recomp/gen/gen.py), so it's built only when asked for (-p recomp, --workspace).
 default-members = ["desktop"]

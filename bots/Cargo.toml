@@ -1,0 +1,9 @@
+[package]
+name = "bots"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Computer opponents: a player that looks at the game and presses its buttons, choosing where each piece goes by a weighted score of the board"
+
+[dependencies]
+tetris-rs = { path = "../tetris-rs" }
